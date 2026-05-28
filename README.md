@@ -1,59 +1,195 @@
-# segway_robot — ROS2 workspace
+# segway_ros2_ws
 
-Robot auto-équilibré à deux roues (segway).
+Digital twin et stack ROS2 d'un Segway miniature à deux roues auto-équilibré.
+
+## Architecture du workspace
+
+```
+segway_ws/
+├── src/
+│   ├── segway_description/   # URDF, launch, rviz
+│   ├── segway_control/       # Contrôleur d'équilibre (PID/LQR)
+│   └── segway_bringup/       # Launch fichiers système complets
+├── build/
+├── install/
+└── log/
+```
+
+---
 
 ## Matériel
 
-| Composant    | Détail            |
-|--------------|-------------------|
-| CPU haut     | Raspberry Pi      |
-| CPU bas      | STM32             |
-| Motorisation | Moto-réducteurs   |
-| Driver       | Pont en H         |
-| Batterie     | LiPo 3S (~11.1 V) |
-| IMU          | MPU-6050          |
-| Roues        | ø68 × 27 mm       |
+### Châssis
 
-## Dimensions (phase conception)
+| Paramètre | Valeur |
+|---|---|
+| Profondeur (x) | 70 mm |
+| Largeur inter-roues (y) | 210 mm |
+| Hauteur châssis | 155 mm |
+| Largeur totale avec roues | 264 mm |
+| Hauteur totale sol | 187.5 mm |
+| Plateaux | 3 mm alu, 5 niveaux |
+| Colonnes | Ø6 mm, longueur 139 mm |
 
-| Paramètre          | Valeur   |
-|--------------------|----------|
-| Profondeur (x)     | 50 mm    |
-| Entraxe roues      | 180 mm   |
-| Hauteur châssis    | 150 mm   |
-| Hauteur sol→sommet | ≈ 184 mm |
-| Étages             | 6 × 25 mm|
+### Roues
 
-## Structure des packages
+| Paramètre | Valeur |
+|---|---|
+| Diamètre | 65 mm |
+| Largeur | 27 mm |
+
+### Motoréducteurs — KIMISS DC 12V 130 RPM (×2)
+
+| Paramètre | Valeur |
+|---|---|
+| Tension nominale | 12V |
+| Vitesse moteur à vide | ~1000 RPM |
+| Rapport de réduction | ~1:70 |
+| Vitesse roue à vide | 130 RPM |
+| Vitesse max linéaire | ~0.44 m/s |
+| Encodeur | Hall effect, 11 CPR |
+| Résolution roue (quadrature ×4) | ~3080 counts/tour |
+| Arbre | 4 mm |
+
+### Électronique
+
+| Composant | Modèle | Dimensions | Masse |
+|---|---|---|---|
+| Calculateur haut niveau | Radxa Zero 3W | 65×37 mm | ~15g |
+| Microcontrôleur | STM32 Nucleo-64 | 70×53 mm | ~20g |
+| IMU | MPU-6050 (GY-521) | 20×16 mm | ~3g |
+| Pont en H | L298N ou TB6612 | 43×43 mm | ~15g |
+| Batterie | LiPo 3S — 160×48×26 mm | 160×48×26 mm | ~180g |
+| Convertisseurs | 2× step-down (5V RPi, 3.3V STM32) | 22×17 mm | ~20g |
+
+### Manette
+
+DualShock 4 (PS4) via Bluetooth 5.4 (intégré Radxa Zero 3W)
+
+---
+
+## Stack logicielle
+
+| Couche | Techno |
+|---|---|
+| OS Radxa | Ubuntu 22.04 Server (headless) |
+| ROS2 | Humble Hawksbill |
+| Simulation | Gazebo Fortress |
+| Visualisation | RViz2 (PC développement) |
+
+### Architecture ROS2
 
 ```
-src/
-├── segway_description/   # URDF, Xacro, RViz  ← ce package
-├── segway_control/       # ros2_control, diff_drive      (à venir)
-├── segway_bringup/       # launch de haut niveau         (à venir)
-├── segway_gazebo/        # simulation Gazebo             (à venir)
-├── segway_balance/       # contrôleur LQR/PID            (à venir)
-└── segway_firmware/      # interface micro-ROS STM32     (à venir)
+DS4 (BT)
+   │
+   ▼
+[joy_node] → /joy
+   │
+   ▼
+[teleop_twist_joy] → /cmd_vel
+   │
+   ▼
+[balance_controller] ←── /imu/data (MPU-6050 @ 100Hz)
+   │
+   ▼
+[diff_drive] → /wheel_cmd
+   │
+   ▼
+STM32 Nucleo (UART) → Pont en H → Moteurs
+                    ← Encodeurs
 ```
 
-## Build & visualisation
+---
+
+## Étages du châssis
+
+```
+z = +155 mm  ┌─────────────────┐  IMU MPU-6050
+             │                 │
+z = +121 mm  ├─────────────────┤  Radxa Zero 3W + STM32 Nucleo-64
+             │                 │
+z = +081 mm  ├─────────────────┤  2× convertisseurs tension
+             │                 │
+z = +061 mm  ├─────────────────┤  LiPo 3S (160×48×26 mm)
+             │                 │
+z = +035 mm  ├─────────────────┤  Pont en H
+             │                 │
+z = +015 mm  ├─────────────────┤  1er plateau
+             │                 │
+z =    0 mm  │  ←── axe roues ─┤  Motoréducteurs (centrés sur z=0)
+             │                 │
+z = -015 mm  └─────────────────┘
+```
+
+---
+
+## Installation
 
 ```bash
-# 1. Dépendances
-rosdep install --from-paths src --ignore-src -r -y
+# Dépendances
+sudo apt install ros-humble-xacro \
+                 ros-humble-robot-state-publisher \
+                 ros-humble-joint-state-publisher-gui \
+                 ros-humble-joy \
+                 ros-humble-teleop-twist-joy
 
-# 2. Build
-colcon build --symlink-install
+# Build
+cd ~/segway_ws
+colcon build
 source install/setup.bash
+```
 
-# 3. Visualisation RViz
+### Visualiser le robot dans RViz2
+
+```bash
 ros2 launch segway_description display.launch.py
 ```
 
-## Roadmap
+### Vérifier le URDF
 
-- [x] URDF / Xacro multi-étages (segway_description)
-- [ ] ros2_control + diff_drive (segway_control)
-- [ ] Simulation Gazebo (segway_gazebo)
-- [ ] Contrôleur d'équilibre LQR (segway_balance)
-- [ ] Interface micro-ROS STM32 (segway_firmware)
+```bash
+ros2 run xacro xacro src/segway_description/urdf/segway_mini.urdf.xacro
+```
+
+---
+
+## Manette DS4 — mapping
+
+| Contrôle | Action |
+|---|---|
+| L2 maintenu | Dead man's switch (sécurité) |
+| Stick gauche Y | Vitesse avance / recul |
+| Stick droit X | Rotation |
+| R2 | Boost ×2 |
+| Croix | Reset IMU |
+| Options | Emergency stop |
+
+### Pairing Bluetooth DS4
+
+```bash
+bluetoothctl
+power on
+agent on
+scan on
+# Maintenir Share + PS jusqu'au clignotement rapide
+pair XX:XX:XX:XX:XX:XX
+trust XX:XX:XX:XX:XX:XX
+connect XX:XX:XX:XX:XX:XX
+```
+
+---
+
+## Statut
+
+- [x] URDF / digital twin
+- [ ] Package ROS2 (launch, CMakeLists)
+- [ ] Contrôleur d'équilibre
+- [ ] Interface STM32 (UART)
+- [ ] Tests simulation Gazebo
+- [ ] Build physique
+
+---
+
+## Auteur
+
+alain-31 — [github.com/alain-31/segway_ros2_ws](https://github.com/alain-31/segway_ros2_ws)
