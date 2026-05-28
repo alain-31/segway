@@ -404,7 +404,7 @@
   </joint>
 
   <!-- ============================================================
-       GAZEBO – PLUGINS ROS2
+       GAZEBO – PLUGINS ROS2 / Gazebo Classic (gazebo11)
   ============================================================ -->
 
   <!-- Friction roues sur sol -->
@@ -417,7 +417,24 @@
     <kp>500000</kp> <kd>10</kd>
   </gazebo>
 
-  <!-- Plugin diff_drive (ROS2 / Gazebo Fortress+) -->
+  <!-- Plugin joint_state_publisher — publie positions roues → /segway/joint_states -->
+  <gazebo>
+    <plugin filename="libgazebo_ros_joint_state_publisher.so"
+            name="joint_state_publisher">
+      <ros>
+        <namespace>/segway</namespace>
+        <remapping>~/out:=joint_states</remapping>
+      </ros>
+      <update_rate>50</update_rate>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+    </plugin>
+  </gazebo>
+
+  <!-- Plugin diff_drive — Gazebo Classic / ROS2 Humble
+       wheel_separation = chassis_y + wheel_w = 0.210 + 0.027 = 0.237 m
+       wheel_diameter   = 2 * wheel_r          = 2 * 0.0325  = 0.065 m
+  -->
   <gazebo>
     <plugin filename="libgazebo_ros_diff_drive.so"
             name="diff_drive_controller">
@@ -426,23 +443,23 @@
       </ros>
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
-      <wheel_separation>${chassis_y + wheel_w}</wheel_separation>  <!-- 0.210 + 0.027 = 0.237 -->
-      <wheel_diameter>${2 * wheel_r}</wheel_diameter>  <!-- 0.065 m -->
+      <wheel_separation>0.237</wheel_separation>
+      <wheel_diameter>0.065</wheel_diameter>
       <max_wheel_torque>0.5</max_wheel_torque>
       <max_wheel_acceleration>5.0</max_wheel_acceleration>
       <publish_odom>true</publish_odom>
-      <publish_odom_tf>true</publish_odom_tf>
-      <publish_wheel_tf>true</publish_wheel_tf>
+      <publish_odom_tf>false</publish_odom_tf>
+      <publish_wheel_tf>false</publish_wheel_tf>
       <odometry_frame>odom</odometry_frame>
       <robot_base_frame>base_link</robot_base_frame>
     </plugin>
   </gazebo>
 
-  <!-- Plugin IMU (MPU6050 simulé) -->
+  <!-- Plugin IMU (MPU6050 simulé) — bruit calqué sur datasheet MPU6050 -->
   <gazebo reference="imu_link">
     <sensor name="imu_sensor" type="imu">
       <always_on>true</always_on>
-      <update_rate>100</update_rate>   <!-- MPU6050 : jusqu'à 1kHz, 100Hz suffit -->
+      <update_rate>100</update_rate>
       <plugin filename="libgazebo_ros_imu_sensor.so"
               name="imu_plugin">
         <ros>
