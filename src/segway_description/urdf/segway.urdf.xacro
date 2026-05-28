@@ -1,0 +1,469 @@
+<?xml version="1.0"?>
+<!--
+  segway_mini.urdf.xacro
+  Digital Twin – Segway miniature
+  ─────────────────────────────────────────────────────────────
+  Dimensions réelles visées :
+    Châssis (sans roues) : 50 x 96 x 150 mm  (x=profondeur, y=largeur, z=hauteur)
+    Roues               : Ø68 × 27 mm
+    Largeur totale      : 96 + 2×27 = 150 mm
+
+  Origine base_link    : axe des roues, centre inter-roues
+  Sol                  : z = −wheel_radius = −0.0325 m
+
+  Étages (z depuis bas du châssis) :
+    −1  Motoréducteurs    0 → 30 mm
+     0  Pont en H         30  → 50 mm
+     1  LiPo 3S           50 → 75 mm
+     2  Convertisseurs     75 → 95 mm
+     3  RPi + STM32        95 → 130 mm
+     4  IMU MPU6050       130 → 150 mm
+-->
+<robot name="segway_mini" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ============================================================
+       PARAMÈTRES GÉOMÉTRIQUES
+  ============================================================ -->
+
+  <!-- Châssis -->
+  <xacro:property name="chassis_x"   value="0.070"/>   <!-- profondeur (avant-arrière) 70mm -->
+  <xacro:property name="chassis_y"   value="0.210"/>   <!-- largeur inter-roues + marges câblage -->
+  <xacro:property name="chassis_z"   value="0.170"/>   <!-- hauteur totale ajustée LiPo 26mm -->
+  <xacro:property name="column_r"    value="0.003"/>   <!-- rayon colonnes d'espacement -->
+
+  <!-- Roues -->
+  <xacro:property name="wheel_r"     value="0.0325"/>   <!-- rayon = Ø65/2 = 32.5mm -->
+  <xacro:property name="wheel_w"     value="0.027"/>   <!-- largeur -->
+  <xacro:property name="motor_rpm_noload"  value="1000"/>  <!-- tr/min moteur avant réducteur -->
+  <xacro:property name="gear_ratio"        value="70"/>    <!-- ~1:70 estimé (130RPM @ 12V) -->
+  <xacro:property name="wheel_rpm_max"     value="130"/>   <!-- tr/min roue à vide @ 12V -->
+  <xacro:property name="encoder_cpr"       value="11"/>    <!-- counts/rev moteur (Hall, 1 canal) -->
+  <!-- Résolution encodeur roue = encoder_cpr * gear_ratio * 4 (quadrature) = ~3080 counts/tr -->
+  <xacro:property name="wheel_y"     value="${chassis_y/2 + wheel_w/2}"/> <!-- offset latéral -->
+  <!-- Largeur totale = 0.210 + 2×0.027 = 0.264 m -->
+
+  <!-- Hauteurs des étages (depuis axe roues = z=0 de base_link)
+       Moteur centré sur z=0  →  arbre moteur aligné avec moyeu roue
+       −1  Motoréducteurs  : −15 → +15 mm  (centré sur z=0)
+        0  Pont en H       :  15 → 35 mm
+        1  LiPo 3S         :  35 → 61 mm  (LiPo H=26mm exact)
+        2  Convertisseurs  :  61 → 81 mm
+        3  RPi + Nucleo    :  81 → 121 mm
+        4  IMU MPU6050     : 121 → 155 mm
+       Hauteur châssis au-dessus axe = 155 mm
+       Hauteur totale sol  = 32.5 + 155  = 187.5 mm
+  -->
+  <xacro:property name="z0"  value="0.000"/>
+  <xacro:property name="z1"  value="0.015"/>   <!-- demi-hauteur moteur = 1er plateau -->
+  <xacro:property name="z2"  value="0.035"/>   <!-- fin pont-H  -->
+  <xacro:property name="z3"  value="0.061"/>   <!-- fin LiPo (26mm exact) -->
+  <xacro:property name="z4"  value="0.081"/>   <!-- fin convertisseurs -->
+  <xacro:property name="z5"  value="0.121"/>   <!-- fin CPU -->
+  <xacro:property name="z6"  value="0.155"/>   <!-- fin IMU = haut châssis -->
+
+  <!-- Épaisseur des plateaux inter-étages -->
+  <xacro:property name="plate_t" value="0.003"/>
+
+  <!-- ============================================================
+       MASSES ESTIMÉES (kg)
+  ============================================================ -->
+  <xacro:property name="m_chassis"    value="0.040"/>
+  <xacro:property name="m_plate"      value="0.010"/>
+  <xacro:property name="m_wheel"      value="0.040"/>
+  <xacro:property name="m_motor"      value="0.055"/>  <!-- par moteur -->
+  <xacro:property name="m_hbridge"    value="0.015"/>
+  <xacro:property name="m_lipo"       value="0.180"/>  <!-- 3S 160x48x26mm typ. 180g -->
+  <xacro:property name="m_converters" value="0.020"/>
+  <xacro:property name="m_rpi"        value="0.013"/>  <!-- RPi Zero 2W : 13g -->
+  <xacro:property name="m_stm32"      value="0.020"/>  <!-- Nucleo-64 : ~20g -->
+  <xacro:property name="m_imu"        value="0.003"/>
+
+  <!-- ============================================================
+       MATÉRIAUX / COULEURS
+  ============================================================ -->
+  <material name="chassis_grey"> <color rgba="0.25 0.25 0.25 1.0"/> </material>
+  <material name="plate_alu">    <color rgba="0.75 0.75 0.78 1.0"/> </material>
+  <material name="wheel_black">  <color rgba="0.08 0.08 0.08 1.0"/> </material>
+  <material name="motor_grey">   <color rgba="0.35 0.35 0.35 1.0"/> </material>
+  <material name="hbridge_blue"> <color rgba="0.10 0.30 0.80 1.0"/> </material>
+  <material name="lipo_yellow">  <color rgba="0.90 0.80 0.00 1.0"/> </material>
+  <material name="conv_green">   <color rgba="0.00 0.65 0.20 1.0"/> </material>
+  <material name="rpi_green">    <color rgba="0.05 0.50 0.15 1.0"/> </material>
+  <material name="stm32_blue">   <color rgba="0.10 0.10 0.60 1.0"/> </material>
+  <material name="imu_red">      <color rgba="0.80 0.10 0.10 1.0"/> </material>
+  <material name="column_grey">  <color rgba="0.55 0.55 0.55 1.0"/> </material>
+
+  <!-- ============================================================
+       MACROS INERTIELLES
+  ============================================================ -->
+  <xacro:macro name="inertia_box" params="m x y z">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${m*(y*y + z*z)/12.0}" ixy="0.0" ixz="0.0"
+               iyy="${m*(x*x + z*z)/12.0}" iyz="0.0"
+               izz="${m*(x*x + y*y)/12.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="inertia_cylinder" params="m r l">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${m*(3.0*r*r + l*l)/12.0}" ixy="0.0" ixz="0.0"
+               iyy="${m*(3.0*r*r + l*l)/12.0}" iyz="0.0"
+               izz="${m*r*r/2.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ============================================================
+       BASE_LINK  (structure chassis : colonnes + fond)
+       Origine = axe roues, centre entre les deux roues
+  ============================================================ -->
+  <link name="base_link">
+    <xacro:inertia_box m="${m_chassis}"
+                       x="${chassis_x}" y="${chassis_y}" z="${z6}"/>
+
+    <!-- Fond du châssis (plancher sous les moteurs, au niveau bas du réducteur) -->
+    <visual>
+      <origin xyz="0 0 ${-z1 + plate_t/2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_x} ${chassis_y} ${plate_t}"/>
+      </geometry>
+      <material name="plate_alu"/>
+    </visual>
+
+    <!-- 4 colonnes verticales
+         Bas  : z = −z1          (fond moteur)
+         Haut : z = z5 + plate_t (dernier plateau, dessous IMU)
+         Longueur = z5 + plate_t + z1
+         Centre   = (z5 + plate_t − z1) / 2
+    -->
+    <xacro:macro name="column" params="cx cy">
+      <visual>
+        <origin xyz="${cx} ${cy} ${(z5 + plate_t - z1) / 2}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${column_r}" length="${z5 + plate_t + z1}"/>
+        </geometry>
+        <material name="column_grey"/>
+      </visual>
+    </xacro:macro>
+
+    <xacro:column cx=" ${chassis_x/2 - 0.005}" cy=" ${chassis_y/2 - 0.005}"/>
+    <xacro:column cx=" ${chassis_x/2 - 0.005}" cy="-${chassis_y/2 - 0.005}"/>
+    <xacro:column cx="-${chassis_x/2 - 0.005}" cy=" ${chassis_y/2 - 0.005}"/>
+    <xacro:column cx="-${chassis_x/2 - 0.005}" cy="-${chassis_y/2 - 0.005}"/>
+
+    <!-- Collision globale (boîte englobante de −z1 à z6) -->
+    <collision>
+      <origin xyz="0 0 ${(z6 - z1) / 2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_x} ${chassis_y} ${z6 + z1}"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- ============================================================
+       MACRO ROUE
+  ============================================================ -->
+  <xacro:macro name="wheel" params="side sign">
+    <link name="${side}_wheel_link">
+      <xacro:inertia_cylinder m="${m_wheel}" r="${wheel_r}" l="${wheel_w}"/>
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_r}" length="${wheel_w}"/>
+        </geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_r}" length="${wheel_w}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${side}_wheel_link"/>
+      <!-- axe des roues au même z que l'origine base_link -->
+      <origin xyz="0 ${sign * wheel_y} 0" rpy="0 0 0"/>
+      <axis   xyz="0 1 0"/>
+      <dynamics damping="0.01" friction="0.05"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel side="left"  sign=" 1"/>
+  <xacro:wheel side="right" sign="-1"/>
+
+  <!-- ============================================================
+       ÉTAGE −1 : MOTORÉDUCTEURS  (z = 0 → 30 mm)
+       Corps cylindrique (moteur) + boîtier réducteur (box)
+  ============================================================ -->
+  <xacro:macro name="motor_assembly" params="side sign rz">
+    <link name="${side}_motor_link">
+      <xacro:inertia_box m="${m_motor}"
+                         x="0.024"
+                         y="${chassis_x*0.7}"
+                         z="${z1*2 - 0.008}"/>
+      <!-- Boîtier réducteur — axe long orienté vers la roue (Y après rotation joint) -->
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.024 ${chassis_x*0.7} ${z1*2 - 0.010}"/>
+        </geometry>
+        <material name="motor_grey"/>
+      </visual>
+      <!-- Corps moteur cylindrique (dans l'axe Y, côté intérieur du chassis) -->
+      <visual>
+        <origin xyz="0 ${-(chassis_x*0.7)/2 - 0.010} 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="0.011" length="0.020"/>
+        </geometry>
+        <material name="motor_grey"/>
+      </visual>
+    </link>
+
+    <joint name="${side}_motor_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="${side}_motor_link"/>
+      <!-- z=0 : arbre moteur aligné sur l'axe des roues chassis_y/2 - 0.012 -->
+      <origin xyz="0 ${sign*(chassis_y/2 - 0.045)} 0" rpy="0 0 ${rz}"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- gauche y>0 : +90°   |   droite y<0 : −90° -->
+  <xacro:motor_assembly side="left"  sign="1"  rz="${pi}"/>
+  <xacro:motor_assembly side="right" sign="-1" rz="${0}"/>
+  <!-- ============================================================
+       MACRO PLATEAU INTER-ÉTAGES
+  ============================================================ -->
+  <xacro:macro name="shelf" params="name z_bottom">
+    <link name="${name}_link">
+      <xacro:inertia_box m="${m_plate}"
+                         x="${chassis_x}" y="${chassis_y}" z="${plate_t}"/>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${chassis_x} ${chassis_y} ${plate_t}"/>
+        </geometry>
+        <material name="plate_alu"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${chassis_x} ${chassis_y} ${plate_t}"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="${name}_link"/>
+      <origin xyz="0 0 ${z_bottom + plate_t/2}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Plateaux aux interfaces des étages -->
+  <xacro:shelf name="shelf_motor_hbridge" z_bottom="${z1}"/>
+  <xacro:shelf name="shelf_hbridge_lipo"  z_bottom="${z2}"/>
+  <xacro:shelf name="shelf_lipo_conv"     z_bottom="${z3}"/>
+  <xacro:shelf name="shelf_conv_cpu"      z_bottom="${z4}"/>
+  <xacro:shelf name="shelf_cpu_imu"       z_bottom="${z5}"/>
+
+  <!-- ============================================================
+       ÉTAGE 0 : PONT EN H  (z = 30  → 50 mm)
+       Ex : L298N (43×43 mm) ou TB6612 (26×26 mm)
+  ============================================================ -->
+  <link name="hbridge_link">
+    <xacro:inertia_box m="${m_hbridge}" x="0.043" y="0.043" z="0.015"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.043 0.043 0.015"/>
+      </geometry>
+      <material name="hbridge_blue"/>
+    </visual>
+  </link>
+  <joint name="hbridge_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="hbridge_link"/>
+    <origin xyz="0 0 ${z1 + 0.015/2 + plate_t}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       ÉTAGE 1 : LIPO 3S  (z = 50 → 76 mm)
+       LiPo 3S : 160×48×26 mm  — orientée axe long sur Y (largeur)
+       160 < 210mm ✓  |  48 < 50mm ✓  |  hauteur = 26mm exact
+  ============================================================ -->
+  <link name="lipo_link">
+    <xacro:inertia_box m="${m_lipo}" x="0.048" y="0.160" z="0.026"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.048 0.160 0.026"/>
+      </geometry>
+      <material name="lipo_yellow"/>
+    </visual>
+  </link>
+  <joint name="lipo_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="lipo_link"/>
+    <origin xyz="0 0 ${z2 + 0.026/2 + plate_t}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       ÉTAGE 2 : CONVERTISSEURS TENSION  (z = 75 → 95 mm)
+       2× step-down mini (ex : MP1584 ou LM2596) ~ 22×17 mm chacun
+  ============================================================ -->
+  <xacro:macro name="converter" params="name ypos">
+    <link name="${name}_link">
+      <xacro:inertia_box m="${m_converters/2.0}" x="0.022" y="0.017" z="0.010"/>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.022 0.017 0.010"/>
+        </geometry>
+        <material name="conv_green"/>
+      </visual>
+    </link>
+    <joint name="${name}_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="${name}_link"/>
+      <origin xyz="0 ${ypos} ${z3 + 0.010/2 + plate_t}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:converter name="conv_5v"  ypos=" 0.022"/>  <!-- 5V pour RPi -->
+  <xacro:converter name="conv_33v" ypos="-0.022"/>  <!-- 3.3V pour STM32 -->
+
+  <!-- ============================================================
+       ÉTAGE 3 : CALCULATEURS  (z = 96 → 136 mm)
+       Option A : Radxa Zero 3W  : 65×37mm, ~25€, RK3566, 1-4GB
+       Option B : Orange Pi Zero 3 : 72×53mm, ~20€, H618, 1-4GB
+       → Radxa Zero 3W retenu (65mm < 70mm chassis_x ✓, 37mm < 70mm ✓)
+       STM32 Nucleo-64 : 70×53mm, ~10€
+         → Nucleo orientée long côté sur Y (70mm < 210mm ✓)
+         → profondeur 53mm < chassis_x 70mm ✓ (OK désormais)
+  ============================================================ -->
+  <!-- Radxa Zero 3W (ou Orange Pi Zero 3) -->
+  <link name="raspberry_pi_link">
+    <xacro:inertia_box m="${m_rpi}" x="0.037" y="0.065" z="0.005"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.037 0.065 0.005"/>
+      </geometry>
+      <material name="rpi_green"/>
+    </visual>
+  </link>
+  <joint name="raspberry_pi_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="raspberry_pi_link"/>
+    <origin xyz="0.005 0.050 ${z4 + 0.005/2 + plate_t}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- STM32 Nucleo-64 — profondeur 53mm < 70mm ✓ -->
+  <link name="stm32_link">
+    <xacro:inertia_box m="${m_stm32}" x="0.053" y="0.070" z="0.008"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.053 0.070 0.008"/>
+      </geometry>
+      <material name="stm32_blue"/>
+    </visual>
+  </link>
+  <joint name="stm32_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="stm32_link"/>
+    <origin xyz="0 -0.055 ${z4 + 0.008/2 + plate_t}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       ÉTAGE 4 : IMU MPU6050  (z = 130 → 150 mm)
+       Module GY-521 : 20×16×2 mm
+       FRAME IMU important pour le contrôleur d'équilibre
+  ============================================================ -->
+  <link name="imu_link">
+    <xacro:inertia_box m="${m_imu}" x="0.020" y="0.016" z="0.002"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.016 0.002"/>
+      </geometry>
+      <material name="imu_red"/>
+    </visual>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <!--
+      Z = haut du châssis − moitié épaisseur IMU
+      X = 0 (centré)  →  axe de mesure du tangage aligné avec axe de balancement
+    -->
+    <origin xyz="0 0 ${z5 + 0.002/2 + plate_t}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       GAZEBO – PLUGINS ROS2
+  ============================================================ -->
+
+  <!-- Friction roues sur sol -->
+  <gazebo reference="left_wheel_link">
+    <mu1>1.0</mu1>  <mu2>1.0</mu2>
+    <kp>500000</kp> <kd>10</kd>
+  </gazebo>
+  <gazebo reference="right_wheel_link">
+    <mu1>1.0</mu1>  <mu2>1.0</mu2>
+    <kp>500000</kp> <kd>10</kd>
+  </gazebo>
+
+  <!-- Plugin diff_drive (ROS2 / Gazebo Fortress+) -->
+  <gazebo>
+    <plugin filename="libgazebo_ros_diff_drive.so"
+            name="diff_drive_controller">
+      <ros>
+        <namespace>/segway</namespace>
+      </ros>
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${chassis_y + wheel_w}</wheel_separation>  <!-- 0.210 + 0.027 = 0.237 -->
+      <wheel_diameter>${2 * wheel_r}</wheel_diameter>  <!-- 0.065 m -->
+      <max_wheel_torque>0.5</max_wheel_torque>
+      <max_wheel_acceleration>5.0</max_wheel_acceleration>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+      <publish_wheel_tf>true</publish_wheel_tf>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+    </plugin>
+  </gazebo>
+
+  <!-- Plugin IMU (MPU6050 simulé) -->
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>   <!-- MPU6050 : jusqu'à 1kHz, 100Hz suffit -->
+      <plugin filename="libgazebo_ros_imu_sensor.so"
+              name="imu_plugin">
+        <ros>
+          <namespace>/segway</namespace>
+          <remapping>~/out:=imu/data</remapping>
+        </ros>
+        <initial_orientation_as_reference>false</initial_orientation_as_reference>
+      </plugin>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+</robot>
