@@ -1,0 +1,33 @@
+imu_filter_node:
+  ros__parameters:
+
+    # ── Topics ──────────────────────────────────────────────────────
+    imu_topic:      /segway/imu/data      # entrée  : IMU brute Gazebo / MPU6050
+    output_topic:   /segway/imu/filtered  # sortie  : angle + vitesse angulaire filtrés
+
+    # ── Filtre complémentaire ────────────────────────────────────────
+    # alpha proche de 1.0 → on fait confiance au gyro (bon court terme)
+    # alpha proche de 0.0 → on fait confiance à l'accéléro (bon long terme)
+    # Valeur typique pour 100 Hz : 0.98
+    alpha: 0.98
+
+    # ── Axe de tangage (pitch) ───────────────────────────────────────
+    # Dans le frame imu_link tel que défini dans l'URDF :
+    #   robot penche avant/arrière → rotation autour de l'axe Y
+    #   gyro_pitch   = imu.angular_velocity.y
+    #   accel_pitch  = atan2(ax, az)  avec ax = linear_acceleration.x
+    #                                       az = linear_acceleration.z
+    # Si le MPU6050 est monté différemment sur le vrai robot,
+    # changer les axes ici sans toucher au code.
+    gyro_axis:   y     # angular_velocity.y  (rad/s)
+    accel_ax:    x     # linear_acceleration.x
+    accel_az:    z     # linear_acceleration.z
+
+    # ── Angle d'équilibre ────────────────────────────────────────────
+    # Angle de tangage cible (robot vertical = 0.0 rad en théorie)
+    # En pratique le centre de masse n'est pas parfaitement sur l'axe →
+    # ajuster après tests sur le vrai robot.
+    pitch_offset: 0.0   # rad
+
+    # ── Diagnostic ──────────────────────────────────────────────────
+    publish_debug: true   # publie aussi /segway/debug/pitch_raw et /pitch_accel

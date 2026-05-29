@@ -22,11 +22,10 @@ from launch import LaunchDescription
 from launch.actions import (
     IncludeLaunchDescription,
     DeclareLaunchArgument,
-    ExecuteProcess,
+    TimerAction,
 )
-from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -53,8 +52,8 @@ def generate_launch_description():
     )
     # Hauteur spawn — légèrement au-dessus du sol, le robot tombera
     z_spawn_arg = DeclareLaunchArgument(
-        'z_spawn', default_value='0.10',
-        description='Hauteur de spawn du robot (m)'
+        'z_spawn', default_value='0.0325',
+        description='Hauteur de spawn = wheel_r (roues posées sur le sol)'
     )
 
     use_sim_time = LaunchConfiguration('use_sim_time')
@@ -93,24 +92,28 @@ def generate_launch_description():
         }]
     )
 
-    # 3. Spawner — injecte le robot dans Gazebo
-    #    z = 0.10m → robot spawn légèrement au-dessus, tombe sur ses roues
-    #    puis bascule (pas de contrôleur à cette étape)
-    spawn_entity = Node(
-        package='gazebo_ros',
-        executable='spawn_entity.py',
-        name='spawn_segway',
-        arguments=[
-            '-topic', 'robot_description',
-            '-entity', 'segway_mini',
-            '-x', '0.0',
-            '-y', '0.0',
-            '-z', z_spawn,
-            '-R', '0.0',
-            '-P', '0.0',   # pitch=0 : robot vertical au spawn
-            '-Y', '0.0',
-        ],
-        output='screen'
+    # 3. Spawner — délai 3s pour laisser Gazebo démarrer complètement
+    #    avant d'injecter le robot (évite le spawn pendant le chargement)
+    spawn_entity = TimerAction(
+        period=10.0,
+        actions=[
+            Node(
+                package='gazebo_ros',
+                executable='spawn_entity.py',
+                name='spawn_segway',
+                arguments=[
+                    '-topic', 'robot_description',
+                    '-entity', 'segway_mini',
+                    '-x', '0.0',
+                    '-y', '0.0',
+                    '-z', z_spawn,
+                    '-R', '0.0',
+                    '-P', '0.0',
+                    '-Y', '0.0',
+                ],
+                output='screen'
+            )
+        ]
     )
 
     # ── LaunchDescription ─────────────────────────────────────────────────────
