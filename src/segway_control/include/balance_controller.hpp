@@ -4,20 +4,27 @@
 /**
  * balance_controller.hpp
  * ─────────────────────────────────────────────────────────────────────────────
- * Boucle interne PID — équilibre du segway.
+ * Cascade PID — equilibrium + velocity control for the segway.
  *
- * Principe :
- *   error  = pitch_angle - pitch_setpoint   (rad)
- *   output = Kp*error + Ki*∫error dt + Kd*d(error)/dt  → cmd_vel.linear.x
+ * Inner loop (100 Hz, IMU-driven):
+ *   error  = pitch - pitch_setpoint   (rad)
+ *   output = PID → cmd_vel.linear.x
  *
- * Souscrit :
- *   /segway/imu/filtered   (sensor_msgs/Imu)       — pitch angle + rate
- *   /segway/pitch_setpoint (std_msgs/Float64)       — setpoint outer loop
+ * Outer loop (20 Hz, timer-driven):
+ *   error  = vx_measured - vel_setpoint   (m/s)
+ *   output = PID → pitch_setpoint (clamped to ±pitch_setpoint_max)
  *
- * Publie :
- *   /segway/cmd_vel        (geometry_msgs/Twist)    — commande moteurs
- *   /segway/debug/pid_error     (std_msgs/Float64)  — erreur courante
- *   /segway/debug/pid_output    (std_msgs/Float64)  — sortie PID
+ * Subscribes:
+ *   /segway/imu/filtered   (sensor_msgs/Imu)       — filtered pitch
+ *   /segway/odom           (nav_msgs/Odometry)      — measured velocity
+ *   /segway/cmd_vel_user   (geometry_msgs/Twist)    — joystick setpoint
+ *
+ * Publishes:
+ *   /segway/cmd_vel             (geometry_msgs/Twist)   — motor command
+ *   /segway/debug/pid_error     (std_msgs/Float64)      — inner loop error
+ *   /segway/debug/pid_output    (std_msgs/Float64)      — inner loop output
+ *   /segway/debug/vel_error     (std_msgs/Float64)      — outer loop error
+ *   /segway/debug/pitch_setpoint (std_msgs/Float64)     — outer loop output
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -42,40 +49,64 @@ public:
 private:
     // ── Callbacks ─────────────────────────────────────────────────────────────
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg);
-    void setpoint_callback(const std_msgs::msg::Float64::SharedPtr msg);
+    void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
+    void joy_callback(const geometry_msgs::msg::Twist::SharedPtr msg);
+    void velocity_loop_callback();
 
-    // ── PID ───────────────────────────────────────────────────────────────────
+    // ── PID helpers ───────────────────────────────────────────────────────────
     double compute_pid(double error, double dt);
     void   reset_pid();
+    double compute_vel_pid(double error, double dt);
+    void   reset_vel_pid();
 
-    // ── Paramètres PID ────────────────────────────────────────────────────────
+    // ── Inner loop parameters ─────────────────────────────────────────────────
     double kp_;
     double ki_;
     double kd_;
-    double output_max_;      // saturation sortie (m/s)
-    double integral_max_;    // anti-windup
-    double pitch_setpoint_;  // angle cible (rad) — mis à jour par outer loop
-    double deadband_;        // seuil minimum de commande (m/s)
+    double output_max_;
+    double integral_max_;
+    double pitch_setpoint_;
+    double deadband_;
 
-    // ── État PID ──────────────────────────────────────────────────────────────
+    // ── Inner loop state ──────────────────────────────────────────────────────
     double integral_;
     double prev_error_;
     double last_time_;
     bool   initialized_;
 
-    // ── Paramètres sécurité ───────────────────────────────────────────────────
-    double pitch_limit_;     // au-delà → emergency stop (rad)
-    bool   enabled_;         // le contrôleur est actif
+    // ── Outer loop parameters ─────────────────────────────────────────────────
+    double vel_kp_;
+    double vel_ki_;
+    double vel_kd_;
+    double vel_setpoint_;           // target linear velocity (m/s), from joystick
+    double pitch_setpoint_max_;     // max pitch setpoint from outer loop (rad)
+    double vel_integral_max_;
+
+    // ── Outer loop state ──────────────────────────────────────────────────────
+    double vel_integral_;
+    double vel_prev_error_;
+    double vel_last_time_;
+    bool   vel_initialized_;
+
+    // ── Measured state ────────────────────────────────────────────────────────
+    double vx_;       // measured linear velocity from odom (m/s)
+    double pos_x_;    // measured position from odom (m)
+    double yaw_rate_setpoint_;  // from joystick angular.z
+
+    // ── Safety ────────────────────────────────────────────────────────────────
+    double pitch_limit_;
+    bool   enabled_;
 
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
-    // ── Position ──────────────────────────────────────────────────────────────
-    double pos_x_;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr  sub_odom_;
-    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr    sub_imu_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr   sub_setpoint_;
-    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr   pub_cmd_vel_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr      pub_pid_error_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr      pub_pid_output_;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr       sub_imu_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr      sub_odom_;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr    sub_joy_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr       pub_cmd_vel_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr          pub_pid_error_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr          pub_pid_output_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr          pub_vel_error_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr          pub_pitch_setpoint_;
+    rclcpp::TimerBase::SharedPtr                                  vel_timer_;
 };
 
 }  // namespace segway_control

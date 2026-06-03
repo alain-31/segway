@@ -19,20 +19,23 @@ ImuFilterNode::ImuFilterNode(const rclcpp::NodeOptions & options)
 : Node("imu_filter_node", options),
   pitch_angle_(0.0),
   last_time_(-1.0),
-  initialized_(false)
+  initialized_(false),
+  spawn_time_(-1.0)
 {
     // ── Paramètres ────────────────────────────────────────────────────────────
-    this->declare_parameter<std::string>("imu_topic",    "/segway/imu/data");
-    this->declare_parameter<std::string>("output_topic", "/segway/imu/filtered");
-    this->declare_parameter<double>("alpha",         0.98);
-    this->declare_parameter<double>("pitch_offset",  0.0);
-    this->declare_parameter<bool>  ("publish_debug", true);
+    this->declare_parameter<std::string>("imu_topic",          "/segway/imu/data");
+    this->declare_parameter<std::string>("output_topic",       "/segway/imu/filtered");
+    this->declare_parameter<double>("alpha",                   0.98);
+    this->declare_parameter<double>("pitch_offset",            0.0);
+    this->declare_parameter<bool>  ("publish_debug",           true);
+    this->declare_parameter<double>("warmup_duration_s",       2.0);
 
     const auto imu_topic    = this->get_parameter("imu_topic").as_string();
     const auto output_topic = this->get_parameter("output_topic").as_string();
-    alpha_        = this->get_parameter("alpha").as_double();
-    pitch_offset_ = this->get_parameter("pitch_offset").as_double();
-    publish_debug_= this->get_parameter("publish_debug").as_bool();
+    alpha_              = this->get_parameter("alpha").as_double();
+    pitch_offset_       = this->get_parameter("pitch_offset").as_double();
+    publish_debug_      = this->get_parameter("publish_debug").as_bool();
+    warmup_duration_s_  = this->get_parameter("warmup_duration_s").as_double();
 
     // ── QoS ───────────────────────────────────────────────────────────────────
     auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
@@ -57,8 +60,9 @@ ImuFilterNode::ImuFilterNode(const rclcpp::NodeOptions & options)
     }
 
     RCLCPP_INFO(this->get_logger(),
-        "ImuFilterNode démarré | alpha=%.3f | pitch_offset=%.4f rad",
-        alpha_, pitch_offset_);
+        "ImuFilterNode démarré | alpha=%.3f | pitch_offset=%.4f rad | "
+        "warmup=%.1f s (gyro-only after spawn)",
+        alpha_, pitch_offset_, warmup_duration_s_);
 }
 
 // ── Callback ─────────────────────────────────────────────────────────────────
@@ -69,16 +73,19 @@ void ImuFilterNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     const double t_now =
         msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
 
+    // Premier message = spawn détecté
     if (!initialized_) {
         last_time_   = t_now;
+        spawn_time_  = t_now;
         initialized_ = true;
+        RCLCPP_INFO(this->get_logger(),
+            "Spawn detected at t=%.2f — gyro-only warmup for %.1f s",
+            t_now, warmup_duration_s_);
         return;
     }
 
     const double dt = t_now - last_time_;
 
-    // dt négatif → horloge Gazebo resetée ou message désynchronisé
-    // dt > 0.5  → pause simulation trop longue → réinitialiser sans planter
     if (dt < 0.0) {
         RCLCPP_WARN(this->get_logger(),
             "dt négatif (%.4f s) — horloge sim resetée, réinitialisation", dt);
@@ -96,12 +103,9 @@ void ImuFilterNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     last_time_ = t_now;
 
     // ── 2. Gyroscope : pitch rate ω (rad/s) ──────────────────────────────────
-    //    Axe Y = axe de tangage dans le frame imu_link
     const double omega = msg->angular_velocity.y;
 
     // ── 3. Accéléromètre : angle géométrique (rad) ───────────────────────────
-    //    Mesure directe de l'inclinaison via la direction du vecteur gravité
-    //    Pas d'intégration — atan2(ax, az) seul
     const double ax = msg->linear_acceleration.x;
     const double az = msg->linear_acceleration.z;
 
@@ -110,13 +114,22 @@ void ImuFilterNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
         : 0.0;
 
     // ── 4. Filtre complémentaire ──────────────────────────────────────────────
-    //
-    //   θ[n] = α × (θ[n-1] + ω × dt)   ← gyro intégré
-    //        + (1-α) × atan2(ax, az)    ← accéléro direct
-    //
+    // Pendant warmup_duration_s_ après le spawn : alpha_eff = 1.0 (gyro pur)
+    // pour ignorer les transitoires physiques du spawn.
+    const bool in_warmup = (t_now - spawn_time_) < warmup_duration_s_;
+    const double alpha_eff = in_warmup ? 1.0 : alpha_;
+
+    if (in_warmup && publish_debug_) {
+        RCLCPP_DEBUG(this->get_logger(), "Warmup: %.2f s remaining",
+            warmup_duration_s_ - (t_now - spawn_time_));
+    } else if (!in_warmup && (t_now - spawn_time_ - warmup_duration_s_) < 0.02) {
+        RCLCPP_INFO(this->get_logger(),
+            "Warmup complete — complementary filter active (alpha=%.2f)", alpha_);
+    }
+
     const double pitch_gyro = pitch_angle_ + omega * dt;
-    pitch_angle_ = alpha_       * pitch_gyro
-                 + (1.0 - alpha_) * pitch_accel
+    pitch_angle_ = alpha_eff       * pitch_gyro
+                 + (1.0 - alpha_eff) * pitch_accel
                  - pitch_offset_;
 
     // ── 5. Publication ────────────────────────────────────────────────────────
@@ -124,13 +137,11 @@ void ImuFilterNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     out.header          = msg->header;
     out.header.frame_id = "imu_link";
 
-    // Orientation : quaternion depuis pitch filtré (roll=0, yaw=0)
     out.orientation = euler_to_quaternion(0.0, pitch_angle_, 0.0);
-    out.orientation_covariance[0] = 1e6;   // roll  : inconnu
-    out.orientation_covariance[4] = 0.01;  // pitch : estimé
-    out.orientation_covariance[8] = 1e6;   // yaw   : inconnu
+    out.orientation_covariance[0] = 1e6;
+    out.orientation_covariance[4] = 0.01;
+    out.orientation_covariance[8] = 1e6;
 
-    // Gyro et accéléro retransmis tels quels
     out.angular_velocity            = msg->angular_velocity;
     out.angular_velocity_covariance = msg->angular_velocity_covariance;
     out.linear_acceleration            = msg->linear_acceleration;

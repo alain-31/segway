@@ -1,0 +1,38 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/alain/bumperbot_ws/install/bumperbot_utils/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_py_examples/lib/python3.10/site-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_msgs/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_mapping/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_localization/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_firmware/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_controller/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_utils/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_remote/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_py_examples/lib/python3.10/site-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_msgs/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_firmware/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_controller/local/lib/python3.10/dist-packages",
+        "/home/alain/ros2_ws/install/turtlesim/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/alain/bumperbot_ws/install/bumperbot_utils/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_py_examples/lib/python3.10/site-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_msgs/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_mapping/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_localization/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_firmware/local/lib/python3.10/dist-packages",
+        "/home/alain/bumperbot_ws/install/bumperbot_controller/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_utils/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_remote/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_py_examples/lib/python3.10/site-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_msgs/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_firmware/local/lib/python3.10/dist-packages",
+        "/home/alain/arduinobot_ws/install/arduinobot_controller/local/lib/python3.10/dist-packages",
+        "/home/alain/ros2_ws/install/turtlesim/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}

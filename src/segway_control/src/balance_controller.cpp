@@ -1,8 +1,8 @@
 /**
  * balance_controller.cpp
  * ─────────────────────────────────────────────────────────────────────────────
- * Implémentation boucle interne PID équilibre segway.
- * Voir balance_controller.hpp pour la documentation.
+ * Cascade PID — inner balance loop + outer velocity loop.
+ * See balance_controller.hpp for documentation.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -14,45 +14,67 @@
 namespace segway_control
 {
 
-// ── Constructeur ─────────────────────────────────────────────────────────────
+// ── Constructor ───────────────────────────────────────────────────────────────
 
 BalanceController::BalanceController(const rclcpp::NodeOptions & options)
 : Node("balance_controller", options),
+  pitch_setpoint_(0.0),
   integral_(0.0),
   prev_error_(0.0),
   last_time_(-1.0),
   initialized_(false),
+  vel_setpoint_(0.0),
+  vel_integral_(0.0),
+  vel_prev_error_(0.0),
+  vel_last_time_(-1.0),
+  vel_initialized_(false),
+  vx_(0.0),
+  pos_x_(0.0),
+  yaw_rate_setpoint_(0.0),
   enabled_(true)
 {
-    // ── Paramètres PID ────────────────────────────────────────────────────────
-    this->declare_parameter<double>("kp",            10.0);
-    this->declare_parameter<double>("ki",             0.5);
-    this->declare_parameter<double>("kd",             0.1);
-    this->declare_parameter<double>("output_max",     0.5);
-    this->declare_parameter<double>("integral_max",   1.0);
-    this->declare_parameter<double>("pitch_setpoint", 0.0);
-    this->declare_parameter<double>("pitch_limit",    0.5);
-    this->declare_parameter<double>("deadband",       0.05);  // m/s
-    this->declare_parameter<bool>  ("publish_debug",  true);
+    // ── Inner loop parameters ─────────────────────────────────────────────────
+    this->declare_parameter<double>("kp",            3.0);
+    this->declare_parameter<double>("ki",            0.0);
+    this->declare_parameter<double>("kd",            0.3);
+    this->declare_parameter<double>("output_max",    1.0);
+    this->declare_parameter<double>("integral_max",  1.0);
+    this->declare_parameter<double>("pitch_limit",   1.2);
+    this->declare_parameter<double>("deadband",      0.05);
+    this->declare_parameter<bool>  ("publish_debug", true);
 
-    // Topics
-    this->declare_parameter<std::string>("imu_topic",      "/segway/imu/filtered");
-    this->declare_parameter<std::string>("setpoint_topic", "/segway/pitch_setpoint");
-    this->declare_parameter<std::string>("cmd_vel_topic",  "/segway/cmd_vel");
+    // ── Outer loop parameters ─────────────────────────────────────────────────
+    this->declare_parameter<double>("vel_kp",              0.3);
+    this->declare_parameter<double>("vel_ki",              0.05);
+    this->declare_parameter<double>("vel_kd",              0.01);
+    this->declare_parameter<double>("vel_integral_max",    0.1);
+    this->declare_parameter<double>("pitch_setpoint_max",  0.15);  // rad
 
-    kp_             = this->get_parameter("kp").as_double();
-    ki_             = this->get_parameter("ki").as_double();
-    kd_             = this->get_parameter("kd").as_double();
-    output_max_     = this->get_parameter("output_max").as_double();
-    integral_max_   = this->get_parameter("integral_max").as_double();
-    pitch_setpoint_ = this->get_parameter("pitch_setpoint").as_double();
-    pitch_limit_    = this->get_parameter("pitch_limit").as_double();
-    deadband_       = this->get_parameter("deadband").as_double();
+    // ── Topics ────────────────────────────────────────────────────────────────
+    this->declare_parameter<std::string>("imu_topic",     "/segway/imu/filtered");
+    this->declare_parameter<std::string>("odom_topic",    "/segway/odom");
+    this->declare_parameter<std::string>("joy_topic",     "/segway/cmd_vel_user");
+    this->declare_parameter<std::string>("cmd_vel_topic", "/segway/cmd_vel");
+
+    kp_           = this->get_parameter("kp").as_double();
+    ki_           = this->get_parameter("ki").as_double();
+    kd_           = this->get_parameter("kd").as_double();
+    output_max_   = this->get_parameter("output_max").as_double();
+    integral_max_ = this->get_parameter("integral_max").as_double();
+    pitch_limit_  = this->get_parameter("pitch_limit").as_double();
+    deadband_     = this->get_parameter("deadband").as_double();
     const bool publish_debug = this->get_parameter("publish_debug").as_bool();
 
-    const auto imu_topic      = this->get_parameter("imu_topic").as_string();
-    const auto setpoint_topic = this->get_parameter("setpoint_topic").as_string();
-    const auto cmd_vel_topic  = this->get_parameter("cmd_vel_topic").as_string();
+    vel_kp_             = this->get_parameter("vel_kp").as_double();
+    vel_ki_             = this->get_parameter("vel_ki").as_double();
+    vel_kd_             = this->get_parameter("vel_kd").as_double();
+    vel_integral_max_   = this->get_parameter("vel_integral_max").as_double();
+    pitch_setpoint_max_ = this->get_parameter("pitch_setpoint_max").as_double();
+
+    const auto imu_topic     = this->get_parameter("imu_topic").as_string();
+    const auto odom_topic    = this->get_parameter("odom_topic").as_string();
+    const auto joy_topic     = this->get_parameter("joy_topic").as_string();
+    const auto cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
 
     // ── QoS ───────────────────────────────────────────────────────────────────
     auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
@@ -60,45 +82,103 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     // ── Subscribers ───────────────────────────────────────────────────────────
     sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(
         imu_topic, qos,
-        std::bind(&BalanceController::imu_callback, this, std::placeholders::_1)
-    );
+        std::bind(&BalanceController::imu_callback, this, std::placeholders::_1));
 
-    sub_setpoint_ = this->create_subscription<std_msgs::msg::Float64>(
-        setpoint_topic, 10,
-        std::bind(&BalanceController::setpoint_callback, this, std::placeholders::_1)
-    );
-
-    pos_x_ = 0.0;
     sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        "/segway/odom", 10,
-        [this](const nav_msgs::msg::Odometry::SharedPtr msg) {
-            pos_x_ = msg->pose.pose.position.x;
-        });
+        odom_topic, 10,
+        std::bind(&BalanceController::odom_callback, this, std::placeholders::_1));
+
+    sub_joy_ = this->create_subscription<geometry_msgs::msg::Twist>(
+        joy_topic, 10,
+        std::bind(&BalanceController::joy_callback, this, std::placeholders::_1));
 
     // ── Publishers ────────────────────────────────────────────────────────────
-    pub_cmd_vel_ = this->create_publisher<geometry_msgs::msg::Twist>(
-        cmd_vel_topic, 10);
+    pub_cmd_vel_ = this->create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic, 10);
 
     if (publish_debug) {
-        pub_pid_error_  = this->create_publisher<std_msgs::msg::Float64>(
-            "/segway/debug/pid_error",  10);
-        pub_pid_output_ = this->create_publisher<std_msgs::msg::Float64>(
-            "/segway/debug/pid_output", 10);
+        pub_pid_error_       = this->create_publisher<std_msgs::msg::Float64>(
+            "/segway/debug/pid_error",       10);
+        pub_pid_output_      = this->create_publisher<std_msgs::msg::Float64>(
+            "/segway/debug/pid_output",      10);
+        pub_vel_error_       = this->create_publisher<std_msgs::msg::Float64>(
+            "/segway/debug/vel_error",       10);
+        pub_pitch_setpoint_  = this->create_publisher<std_msgs::msg::Float64>(
+            "/segway/debug/pitch_setpoint",  10);
     }
 
+    // ── Outer loop timer — 20 Hz ──────────────────────────────────────────────
+    vel_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(50),
+        std::bind(&BalanceController::velocity_loop_callback, this));
+
     RCLCPP_INFO(this->get_logger(),
-        "BalanceController démarré | Kp=%.2f Ki=%.2f Kd=%.2f | "
+        "BalanceController started | "
+        "Inner: Kp=%.2f Ki=%.2f Kd=%.2f | "
+        "Outer: Kp=%.2f Ki=%.2f Kd=%.2f pitch_max=%.3f rad | "
         "output_max=%.2f m/s | deadband=%.3f m/s | pitch_limit=%.3f rad",
-        kp_, ki_, kd_, output_max_, deadband_, pitch_limit_);
+        kp_, ki_, kd_,
+        vel_kp_, vel_ki_, vel_kd_, pitch_setpoint_max_,
+        output_max_, deadband_, pitch_limit_);
 }
 
-// ── Callback IMU ─────────────────────────────────────────────────────────────
+// ── Odom callback — update measured vx and pos_x ─────────────────────────────
+
+void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+    vx_    = msg->twist.twist.linear.x;
+    pos_x_ = msg->pose.pose.position.x;
+}
+
+// ── Joystick callback — update velocity and yaw setpoints ────────────────────
+
+void BalanceController::joy_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+{
+    vel_setpoint_      = msg->linear.x;
+    yaw_rate_setpoint_ = msg->angular.z;
+}
+
+// ── Outer loop — 20 Hz ───────────────────────────────────────────────────────
+
+void BalanceController::velocity_loop_callback()
+{
+    const double t_now = this->now().seconds();
+
+    if (!vel_initialized_) {
+        vel_last_time_   = t_now;
+        vel_initialized_ = true;
+        return;
+    }
+
+    const double dt = t_now - vel_last_time_;
+    vel_last_time_ = t_now;
+
+    if (dt <= 0.0 || dt > 1.0) return;
+
+    // Outer PID: error = measured_vx - desired_vx
+    // Positive error (going too fast forward) → negative pitch setpoint (lean back)
+    const double vel_error = vel_setpoint_ -  vx_ ;
+    pitch_setpoint_ = compute_vel_pid(vel_error, dt);
+
+    // Debug
+    RCLCPP_DEBUG(this->get_logger(),
+        "vel_loop | vx=%.3f setpoint=%.3f error=%.3f pitch_sp=%.4f",
+        vx_, vel_setpoint_, vel_error, pitch_setpoint_);
+
+    if (pub_vel_error_ && pub_pitch_setpoint_) {
+        std_msgs::msg::Float64 msg_vel_err, msg_pitch_sp;
+        msg_vel_err.data  = vel_error;
+        msg_pitch_sp.data = pitch_setpoint_;
+        pub_vel_error_->publish(msg_vel_err);
+        pub_pitch_setpoint_->publish(msg_pitch_sp);
+    }
+}
+
+// ── IMU callback — inner balance loop at 100 Hz ───────────────────────────────
 
 void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
 {
-    // ── 1. Calcul de dt ───────────────────────────────────────────────────────
-    const double t_now =
-        msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
+    // ── 1. dt ─────────────────────────────────────────────────────────────────
+    const double t_now = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
 
     if (!initialized_) {
         last_time_   = t_now;
@@ -109,8 +189,7 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     const double dt = t_now - last_time_;
 
     if (dt < 0.0) {
-        RCLCPP_WARN(this->get_logger(),
-            "dt négatif (%.4f s) — réinitialisation PID", dt);
+        RCLCPP_WARN(this->get_logger(), "Negative dt (%.4f s) — resetting PID", dt);
         reset_pid();
         last_time_ = t_now;
         return;
@@ -121,40 +200,33 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     }
     last_time_ = t_now;
 
-    // ── 2. Extraction pitch depuis quaternion filtré ───────────────────────────
-    //    Le filtre IMU publie orientation = euler_to_quaternion(0, pitch, 0)
-    //    On récupère pitch via : pitch = 2 * asin(q.y)  [roll=0, yaw=0]
+    // ── 2. Pitch from filtered quaternion ─────────────────────────────────────
     const double qy    = msg->orientation.y;
     const double qw    = msg->orientation.w;
     const double pitch = std::atan2(2.0 * qw * qy, 1.0 - 2.0 * qy * qy);
 
-    // ── 3. Sécurité — emergency stop si trop incliné ──────────────────────────
+    // ── 3. Safety ─────────────────────────────────────────────────────────────
     if (std::abs(pitch) > pitch_limit_) {
         if (enabled_) {
             RCLCPP_WARN(this->get_logger(),
-                "Angle limite dépassé (%.3f rad) — emergency stop", pitch);
+                "Pitch limit exceeded (%.3f rad) — emergency stop", pitch);
             enabled_ = false;
         }
-        // Publier cmd_vel = 0
         pub_cmd_vel_->publish(geometry_msgs::msg::Twist());
         reset_pid();
+        reset_vel_pid();
         return;
     }
-    // Réactiver si revenu dans les limites (intervention manuelle)
     if (!enabled_) {
-        RCLCPP_INFO(this->get_logger(), "Angle OK — contrôleur réactivé");
+        RCLCPP_INFO(this->get_logger(), "Pitch OK — controller re-enabled");
         enabled_ = true;
     }
 
-    // ── 4. PID ────────────────────────────────────────────────────────────────
+    // ── 4. Inner PID ──────────────────────────────────────────────────────────
     const double error  = pitch - pitch_setpoint_;
     const double output = compute_pid(error, dt);
 
-    // ── 5. Publication cmd_vel ────────────────────────────────────────────────
-    //    Segway : si incliné en avant (pitch > 0) → avancer pour rattraper
-    //    Zone morte : si |output| < deadband → pousser au minimum deadband
-    //    linear.x  = sortie PID
-    //    angular.z = 0 (boucle externe gèrera la rotation)
+    // ── 5. Deadband + publish ─────────────────────────────────────────────────
     double cmd_x = output;
     if (std::abs(output) > 1e-6 && std::abs(output) < deadband_) {
         cmd_x = std::copysign(deadband_, output);
@@ -162,16 +234,16 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
 
     geometry_msgs::msg::Twist cmd;
     cmd.linear.x  = cmd_x;
-    cmd.angular.z = 0.0;
+    cmd.angular.z = yaw_rate_setpoint_;
     pub_cmd_vel_->publish(cmd);
 
-    // ── 6. Debug ──────────────────────────────────────────────────────────────
-    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-        "pitch=%.3f error=%.3f output=%.3f cmd=%.3f pos_x=%.3f sat=%s db=%s",
-        pitch, error, output, cmd_x, pos_x_,
+    // ── 6. Log ────────────────────────────────────────────────────────────────
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 20,
+        "pitch=%.3f pitch_sp=%.4f err=%.3f out=%.3f cmd=%.3f vx=%.3f pos_x=%.3f sat=%s deadb=%s",
+        pitch, pitch_setpoint_, error, output, cmd_x, vx_, pos_x_,
         std::abs(output) >= output_max_ ? "YES" : "no",
         std::abs(output) > 1e-6 && std::abs(output) < deadband_ ? "YES" : "no");
-        
+
     if (pub_pid_error_ && pub_pid_output_) {
         std_msgs::msg::Float64 msg_error, msg_output;
         msg_error.data  = error;
@@ -181,32 +253,20 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     }
 }
 
-// ── Callback setpoint (outer loop) ───────────────────────────────────────────
-
-void BalanceController::setpoint_callback(const std_msgs::msg::Float64::SharedPtr msg)
-{
-    pitch_setpoint_ = msg->data;
-}
-
-// ── PID ──────────────────────────────────────────────────────────────────────
+// ── Inner PID ─────────────────────────────────────────────────────────────────
 
 double BalanceController::compute_pid(double error, double dt)
 {
-    // Proportionnel
     const double p = kp_ * error;
 
-    // Intégral avec anti-windup (clamping)
     integral_ += error * dt;
     integral_  = std::clamp(integral_, -integral_max_, integral_max_);
     const double i = ki_ * integral_;
 
-    // Dérivée (sur l'erreur, pas sur le setpoint → évite derivative kick)
     const double d = kd_ * (error - prev_error_) / dt;
     prev_error_    = error;
 
-    // Sortie saturée
-    const double output = std::clamp(p + i + d, -output_max_, output_max_);
-    return output;
+    return std::clamp(p + i + d, -output_max_, output_max_);
 }
 
 void BalanceController::reset_pid()
@@ -214,6 +274,30 @@ void BalanceController::reset_pid()
     integral_    = 0.0;
     prev_error_  = 0.0;
     initialized_ = false;
+}
+
+// ── Outer velocity PID ────────────────────────────────────────────────────────
+
+double BalanceController::compute_vel_pid(double error, double dt)
+{
+    const double p = vel_kp_ * error;
+
+    vel_integral_ += error * dt;
+    vel_integral_  = std::clamp(vel_integral_, -vel_integral_max_, vel_integral_max_);
+    const double i = vel_ki_ * vel_integral_;
+
+    const double d = vel_kd_ * (error - vel_prev_error_) / dt;
+    vel_prev_error_ = error;
+
+    // Output is pitch_setpoint — clamped to safety limit
+    return std::clamp(p + i + d, -pitch_setpoint_max_, pitch_setpoint_max_);
+}
+
+void BalanceController::reset_vel_pid()
+{
+    vel_integral_    = 0.0;
+    vel_prev_error_  = 0.0;
+    vel_initialized_ = false;
 }
 
 }  // namespace segway_control

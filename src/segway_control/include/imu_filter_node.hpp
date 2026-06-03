@@ -7,6 +7,11 @@
  * Filtre complémentaire IMU pour segway auto-équilibré.
  *
  * θ[n] = α × (θ[n-1] + ω_gyro × dt) + (1-α) × atan2(ax, az)
+ *
+ * Spawn detection: premier message IMU reçu = robot spawné.
+ * Pendant warmup_duration_s_ après le spawn : alpha_eff = 1.0 (gyro pur)
+ * pour ignorer les transitoires physiques du spawn.
+ * Après warmup : alpha_eff = alpha_ (filtre complémentaire normal).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -35,14 +40,16 @@ private:
         double roll, double pitch, double yaw);
 
     // ── Paramètres ────────────────────────────────────────────────────────────
-    double alpha_;           // coefficient filtre complémentaire
-    double pitch_offset_;    // correction angle repos (rad)
-    bool   publish_debug_;   // active topics debug
+    double alpha_;               // coefficient filtre complémentaire
+    double pitch_offset_;        // correction angle repos (rad)
+    bool   publish_debug_;       // active topics debug
+    double warmup_duration_s_;   // durée gyro-pur après spawn (s)
 
     // ── État interne ──────────────────────────────────────────────────────────
-    double pitch_angle_;     // angle filtré courant (rad)
-    double last_time_;       // timestamp dernier message (s)
-    bool   initialized_;     // faux jusqu'au premier message
+    double pitch_angle_;         // angle filtré courant (rad)
+    double last_time_;           // timestamp dernier message (s)
+    bool   initialized_;         // faux jusqu'au premier message (= spawn)
+    double spawn_time_;          // timestamp du premier message (= spawn)
 
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu_;

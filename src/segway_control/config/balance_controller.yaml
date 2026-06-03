@@ -2,42 +2,59 @@ balance_controller:
   ros__parameters:
 
     # ── Topics ──────────────────────────────────────────────────────────────
-    imu_topic:      /segway/imu/filtered   # entrée : pitch filtré
-    setpoint_topic: /segway/pitch_setpoint # setpoint outer loop (optionnel)
-    cmd_vel_topic:  /segway/cmd_vel        # sortie : commande moteurs
+    imu_topic:     /segway/imu/filtered   # input: filtered pitch
+    odom_topic:    /segway/odom           # input: measured velocity
+    joy_topic:     /segway/cmd_vel_joy    # input: joystick setpoint
+    cmd_vel_topic: /segway/cmd_vel        # output: motor command
 
-    # ── Gains PID ────────────────────────────────────────────────────────────
-    # Valeurs initiales conservatives — à tuner sur la simulation
+    # ════════════════════════════════════════════════════════════════════════
+    # INNER LOOP — pitch balance (100 Hz, IMU-driven)
+    # ════════════════════════════════════════════════════════════════════════
     #
-    # Kp : gain proportionnel
-    #   Trop faible → robot tombe lentement sans se rattraper
-    #   Trop fort   → oscillations rapides
-    kp: 3.0
+    # Kp : too low → falls slowly without recovering
+    #      too high → fast oscillations
+    kp: 5.0
 
-    # Ki : gain intégral
-    #   Corrige le biais statique (pitch_offset non nul)
-    #   Trop fort → windup, instabilité
-    ki: 0.00
+    # Ki : corrects static pitch bias
+    #      too high → windup, instability
+    ki: 0.0
 
-    # Kd : gain dérivé
-    #   Amortit les oscillations
-    #   Trop fort → amplification du bruit gyro
+    # Kd : damps oscillations
+    #      too high → gyro noise amplification
     kd: 0.3
 
-    # ── Saturation ───────────────────────────────────────────────────────────
-    output_max:   1.0    # vitesse max (m/s)
+    output_max:   1.0    # max wheel velocity (m/s)
     integral_max: 1.0    # anti-windup
 
-    # ── Zone morte ───────────────────────────────────────────────────────────
-    # Si |output| < deadband → commande poussée à deadband
-    # Évite que les petites commandes soient ignorées par le diff_drive
-    deadband: 0.05      # m/s
+    # Deadband: pushes small commands to minimum threshold
+    # Prevents diff_drive from ignoring tiny commands
+    deadband: 0.05       # m/s
 
-    # ── Équilibre ────────────────────────────────────────────────────────────
-    pitch_setpoint: 0.0  # rad
-
-    # ── Sécurité ─────────────────────────────────────────────────────────────
+    # Safety: emergency stop if pitch exceeds this
     pitch_limit: 1.2     # rad
 
+    # ════════════════════════════════════════════════════════════════════════
+    # OUTER LOOP — velocity control (20 Hz, timer-driven)
+    # Output: pitch_setpoint fed to inner loop
+    # ════════════════════════════════════════════════════════════════════════
+    #
+    # vel_kp : how aggressively to lean to correct velocity error
+    #          too high → oscillation, instability
+    #          too low  → slow drift correction
+    vel_kp: 0.0
+
+    # vel_ki : corrects steady-state velocity error
+    #          keep small to avoid windup
+    vel_ki: 0.0
+
+    # vel_kd : damps velocity overshoot
+    vel_kd: 0.0
+
+    # Maximum pitch setpoint the outer loop can command (safety)
+    pitch_setpoint_max: 0.15   # rad (~8.6 degrees)
+
+    # Anti-windup for velocity integrator
+    vel_integral_max: 0.1      # rad
+
     # ── Debug ────────────────────────────────────────────────────────────────
-    publish_debug: true  # publie /segway/debug/pid_error et pid_output
+    publish_debug: true
