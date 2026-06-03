@@ -50,9 +50,9 @@ def generate_launch_description():
         default_value=os.path.join(pkg_segway_gazebo, 'worlds', 'segway_flat.world'),
         description='Fichier world Gazebo'
     )
-    # Hauteur spawn — légèrement au-dessus du sol, le robot tombera
+    # Hauteur spawn — légèrement au-dessus du sol, le robot tombera 0.0325
     z_spawn_arg = DeclareLaunchArgument(
-        'z_spawn', default_value='0.0325',
+        'z_spawn', default_value='0.033',
         description='Hauteur de spawn = wheel_r (roues posées sur le sol)'
     )
 
@@ -95,7 +95,7 @@ def generate_launch_description():
     # 3. Spawner — délai 3s pour laisser Gazebo démarrer complètement
     #    avant d'injecter le robot (évite le spawn pendant le chargement)
     spawn_entity = TimerAction(
-        period=10.0,
+        period=15.0,
         actions=[
             Node(
                 package='gazebo_ros',

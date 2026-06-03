@@ -14,6 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
 # ── imu_filter_node ───────────────────────────────────────────────────────────
@@ -30,11 +31,32 @@ ament_target_dependencies(imu_filter_node
   rclcpp
   sensor_msgs
   std_msgs
+  nav_msgs
+  geometry_msgs
+)
+
+# ── balance_controller ────────────────────────────────────────────────────────
+add_executable(balance_controller
+  src/balance_controller.cpp
+)
+
+target_include_directories(balance_controller PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(balance_controller
+  rclcpp
+  sensor_msgs
+  std_msgs
+  nav_msgs
   geometry_msgs
 )
 
 # ── Install ───────────────────────────────────────────────────────────────────
-install(TARGETS imu_filter_node
+install(TARGETS
+  imu_filter_node
+  balance_controller
   DESTINATION lib/${PROJECT_NAME}
 )
 

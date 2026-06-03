@@ -1,0 +1,43 @@
+balance_controller:
+  ros__parameters:
+
+    # ── Topics ──────────────────────────────────────────────────────────────
+    imu_topic:      /segway/imu/filtered   # entrée : pitch filtré
+    setpoint_topic: /segway/pitch_setpoint # setpoint outer loop (optionnel)
+    cmd_vel_topic:  /segway/cmd_vel        # sortie : commande moteurs
+
+    # ── Gains PID ────────────────────────────────────────────────────────────
+    # Valeurs initiales conservatives — à tuner sur la simulation
+    #
+    # Kp : gain proportionnel
+    #   Trop faible → robot tombe lentement sans se rattraper
+    #   Trop fort   → oscillations rapides
+    kp: 3.0
+
+    # Ki : gain intégral
+    #   Corrige le biais statique (pitch_offset non nul)
+    #   Trop fort → windup, instabilité
+    ki: 0.00
+
+    # Kd : gain dérivé
+    #   Amortit les oscillations
+    #   Trop fort → amplification du bruit gyro
+    kd: 0.3
+
+    # ── Saturation ───────────────────────────────────────────────────────────
+    output_max:   1.0    # vitesse max (m/s)
+    integral_max: 1.0    # anti-windup
+
+    # ── Zone morte ───────────────────────────────────────────────────────────
+    # Si |output| < deadband → commande poussée à deadband
+    # Évite que les petites commandes soient ignorées par le diff_drive
+    deadband: 0.05      # m/s
+
+    # ── Équilibre ────────────────────────────────────────────────────────────
+    pitch_setpoint: 0.0  # rad
+
+    # ── Sécurité ─────────────────────────────────────────────────────────────
+    pitch_limit: 1.2     # rad
+
+    # ── Debug ────────────────────────────────────────────────────────────────
+    publish_debug: true  # publie /segway/debug/pid_error et pid_output

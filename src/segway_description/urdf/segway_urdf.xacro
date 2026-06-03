@@ -1,0 +1,370 @@
+<?xml version="1.0"?>
+<!--
+  segway_mini.urdf.xacro  — Version simplifiée v2
+  ─────────────────────────────────────────────────────────────────────────────
+  URDF simplifié avec formes primitives pour simulation physique propre.
+  Chaque composant = 1 pavé centré en X=0, Y=0 → CG parfaitement centré.
+
+  Disposition des étages (depuis axe roues = z=0) :
+    Motoréducteurs + essieux : pavé 20×210×20 mm, z_centre =   0mm
+    Pont en H + convertisseurs: pavé 70×210×40 mm, z_centre = +30mm
+    Cartes RPi + Nucleo      : pavé 70×210×70 mm, z_centre = +85mm
+    LiPo 3S                  : pavé 70×155×60 mm, z_centre = +150mm
+    IMU MPU6050              : pavé 20×16×15  mm, z_centre = +187mm
+
+  CG estimé : ~94mm au-dessus de l'axe des roues (était 69mm)
+  Hauteur totale châssis : ~195mm
+  Hauteur totale sol     : 32.5 + 195 = 227.5mm
+
+  Roues : Ø65mm × 27mm
+  Largeur totale : 210 + 2×27 = 264mm
+  Anti-patinage : mu1=mu2=3.0, kp=1e6, kd=100
+  ─────────────────────────────────────────────────────────────────────────────
+-->
+<robot name="segway_mini" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ============================================================
+       PARAMÈTRES GÉOMÉTRIQUES
+  ============================================================ -->
+
+  <!-- Châssis -->
+  <xacro:property name="chassis_x" value="0.070"/>  <!-- profondeur 70mm -->
+  <xacro:property name="chassis_y" value="0.210"/>  <!-- largeur 210mm -->
+
+  <!-- Roues -->
+  <xacro:property name="wheel_r"   value="0.0325"/> <!-- rayon Ø65/2 -->
+  <xacro:property name="wheel_w"   value="0.027"/>  <!-- largeur 27mm -->
+  <xacro:property name="wheel_y"   value="${chassis_y/2 + wheel_w/2}"/>
+  <!-- Largeur totale = 0.210 + 2×0.027 = 0.264m -->
+
+  <!-- Moteur -->
+  <xacro:property name="motor_rpm_noload" value="1000"/>
+  <xacro:property name="gear_ratio"       value="70"/>
+  <xacro:property name="wheel_rpm_max"    value="130"/>
+  <xacro:property name="encoder_cpr"      value="11"/>
+  <!-- Résolution roue = 11 × 70 × 4 = 3080 counts/tr -->
+
+  <!-- ── Étages (z_centre depuis axe roues) ──────────────────────────────
+       Étage -1 : motoréducteurs  20×210×20  z_centre =   0mm
+       Étage  0 : pont H + conv.  70×210×40  z_centre = +30mm  (+10mm)
+       Étage  1 : cartes          70×210×70  z_centre = +85mm  (+30mm)
+       Étage  2 : LiPo            70×155×60  z_centre = +150mm (+30mm)
+       Étage  3 : IMU             20×16×15   z_centre = +187mm
+       CG : ~94mm (était 69mm, +25mm)
+       Hauteur totale sol : 32.5 + 195 = 227.5mm
+  -->
+
+  <!-- Demi-hauteurs visuelles — étages continus
+       motor : h=20 → -10 à +10mm
+       elec  : h=40 → +10 à +50mm  ✓
+       cards : h=70 → +50 à +120mm ✓
+       lipo  : h=60 → +120 à +180mm ✓
+       imu   : h=15 → +180 à +195mm ✓
+  -->
+  <xacro:property name="motor_hz"  value="0.010"/>  <!-- 20mm/2 -->
+  <xacro:property name="elec_hz"   value="0.020"/>  <!-- 40mm/2 -->
+  <xacro:property name="cards_hz"  value="0.035"/>  <!-- 70mm/2 -->
+  <xacro:property name="lipo_hz"   value="0.030"/>  <!-- 60mm/2 -->
+  <xacro:property name="imu_hz"    value="0.0075"/> <!-- 15mm/2 -->
+
+  <!-- Z centres -->
+  <xacro:property name="z_motor"   value="0.000"/>  <!-- centré sur axe roues -->
+  <xacro:property name="z_elec"    value="0.030"/>  <!-- +30mm -->
+  <xacro:property name="z_cards"   value="0.085"/>  <!-- +85mm -->
+  <xacro:property name="z_lipo"    value="0.150"/>  <!-- +150mm -->
+  <xacro:property name="z_imu"     value="0.1875"/> <!-- +187.5mm -->
+
+  <!-- ============================================================
+       MASSES (kg)
+  ============================================================ -->
+  <xacro:property name="m_wheel"  value="0.040"/>  <!-- par roue -->
+  <xacro:property name="m_motor"  value="0.110"/>  <!-- 2 motoréducteurs -->
+  <xacro:property name="m_elec"   value="0.050"/>  <!-- pont H + convertisseurs -->
+  <xacro:property name="m_cards"  value="0.050"/>  <!-- RPi + Nucleo -->
+  <xacro:property name="m_lipo"   value="0.380"/>  <!-- LiPo 3S pesée -->
+  <xacro:property name="m_imu"    value="0.003"/>  <!-- MPU6050 -->
+
+  <!-- ============================================================
+       MATÉRIAUX
+  ============================================================ -->
+  <material name="wheel_black">  <color rgba="0.08 0.08 0.08 1.0"/> </material>
+  <material name="motor_grey">   <color rgba="0.35 0.35 0.35 1.0"/> </material>
+  <material name="elec_blue">    <color rgba="0.10 0.30 0.80 1.0"/> </material>
+  <material name="cards_green">  <color rgba="0.05 0.50 0.15 1.0"/> </material>
+  <material name="lipo_yellow">  <color rgba="0.90 0.80 0.00 1.0"/> </material>
+  <material name="imu_red">      <color rgba="0.80 0.10 0.10 1.0"/> </material>
+
+  <!-- ============================================================
+       MACROS INERTIELLES
+  ============================================================ -->
+  <xacro:macro name="inertia_box" params="m x y z">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${m*(y*y + z*z)/12.0}" ixy="0.0" ixz="0.0"
+               iyy="${m*(x*x + z*z)/12.0}" iyz="0.0"
+               izz="${m*(x*x + y*y)/12.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="inertia_cylinder" params="m r l">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia ixx="${m*(3.0*r*r + l*l)/12.0}" ixy="0.0" ixz="0.0"
+               iyy="${m*(3.0*r*r + l*l)/12.0}" iyz="0.0"
+               izz="${m*r*r/2.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ============================================================
+       BASE_LINK — origine = axe roues, centre inter-roues
+       Masse négligeable (structure virtuelle)
+  ============================================================ -->
+  <link name="base_link">
+    <inertial>
+      <mass value="0.001"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0"
+               iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- ============================================================
+       ROUES
+  ============================================================ -->
+  <xacro:macro name="wheel" params="side sign">
+    <link name="${side}_wheel_link">
+      <xacro:inertia_cylinder m="${m_wheel}" r="${wheel_r}" l="${wheel_w}"/>
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_r}" length="${wheel_w}"/>
+        </geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_r}" length="${wheel_w}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${side}_wheel_link"/>
+      <origin xyz="0 ${sign * wheel_y} 0" rpy="0 0 0"/>
+      <axis   xyz="0 1 0"/>
+      <dynamics damping="0.01" friction="0.05"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel side="left"  sign=" 1"/>
+  <xacro:wheel side="right" sign="-1"/>
+
+  <!-- ============================================================
+       ÉTAGE -1 : MOTORÉDUCTEURS + ESSIEUX
+       Pavé 20×210×20mm — centré sur z=0 (axe roues)
+       x=0, y=0 → symétrie parfaite
+  ============================================================ -->
+  <link name="motor_link">
+    <xacro:inertia_box m="${m_motor}" x="0.020" y="0.210" z="0.020"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.210 0.020"/>
+      </geometry>
+      <material name="motor_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.210 0.020"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="motor_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="motor_link"/>
+    <origin xyz="0 0 ${z_motor}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       ÉTAGE 0 : PONT EN H + CONVERTISSEURS
+       Pavé 70×210×40mm — z_centre = +30mm
+  ============================================================ -->
+  <link name="elec_link">
+    <xacro:inertia_box m="${m_elec}" x="0.070" y="0.210" z="0.040"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.070 0.210 0.040"/>
+      </geometry>
+      <material name="elec_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.070 0.210 0.040"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="elec_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="elec_link"/>
+    <origin xyz="0 0 ${z_elec}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       ÉTAGE 1 : CARTES RPi + NUCLEO
+       Pavé 70×210×70mm — z_centre = +85mm
+  ============================================================ -->
+  <link name="cards_link">
+    <xacro:inertia_box m="${m_cards}" x="0.070" y="0.210" z="0.070"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.070 0.210 0.070"/>
+      </geometry>
+      <material name="elec_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.070 0.210 0.070"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="cards_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="cards_link"/>
+    <origin xyz="0 0 ${z_cards}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       ÉTAGE 2 : LIPO 3S 380g
+       Pavé 70×155×60mm — z_centre = +150mm
+       Dimensions réelles : 155×48×24mm
+  ============================================================ -->
+  <link name="lipo_link">
+    <xacro:inertia_box m="${m_lipo}" x="0.070" y="0.155" z="0.060"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.070 0.155 0.060"/>
+      </geometry>
+      <material name="lipo_yellow"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.070 0.155 0.060"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="lipo_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="lipo_link"/>
+    <origin xyz="0 0 ${z_lipo}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       ÉTAGE 3 : IMU MPU6050 (GY-521)
+       Pavé 20×16×15mm — z_centre = +187.5mm
+       rpy="0 0 0" → Z vers le haut, X vers l'avant ✓
+  ============================================================ -->
+  <link name="imu_link">
+    <xacro:inertia_box m="${m_imu}" x="0.020" y="0.016" z="0.015"/>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.016 0.015"/>
+      </geometry>
+      <material name="imu_red"/>
+    </visual>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="0 0 ${z_imu}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ============================================================
+       GAZEBO – PLUGINS ROS2 / Gazebo Classic (gazebo11)
+  ============================================================ -->
+
+  <!-- Friction roues sur sol — anti-patinage -->
+  <gazebo reference="left_wheel_link">
+    <mu1>3.0</mu1>  <mu2>3.0</mu2>
+    <kp>1000000</kp> <kd>100</kd>
+  </gazebo>
+  <gazebo reference="right_wheel_link">
+    <mu1>3.0</mu1>  <mu2>3.0</mu2>
+    <kp>1000000</kp> <kd>100</kd>
+  </gazebo>
+
+  <!-- Plugin joint_state_publisher -->
+  <gazebo>
+    <plugin filename="libgazebo_ros_joint_state_publisher.so"
+            name="joint_state_publisher">
+      <ros>
+        <namespace>/segway</namespace>
+        <remapping>~/out:=joint_states</remapping>
+      </ros>
+      <update_rate>50</update_rate>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+    </plugin>
+  </gazebo>
+
+  <!-- Plugin diff_drive
+       wheel_separation = 0.210 + 0.027 = 0.237m
+       wheel_diameter   = 2 × 0.0325   = 0.065m
+  -->
+  <gazebo>
+    <plugin filename="libgazebo_ros_diff_drive.so"
+            name="diff_drive_controller">
+      <ros>
+        <namespace>/segway</namespace>
+      </ros>
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>0.237</wheel_separation>
+      <wheel_diameter>0.065</wheel_diameter>
+      <max_wheel_torque>2.0</max_wheel_torque>
+      <max_wheel_acceleration>10.0</max_wheel_acceleration>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>false</publish_odom_tf>
+      <publish_wheel_tf>false</publish_wheel_tf>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+    </plugin>
+  </gazebo>
+
+  <!-- Plugin IMU — bruit calqué datasheet MPU6050 -->
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <plugin filename="libgazebo_ros_imu_sensor.so"
+              name="imu_plugin">
+        <ros>
+          <namespace>/segway</namespace>
+          <remapping>~/out:=imu/data</remapping>
+        </ros>
+        <initial_orientation_as_reference>false</initial_orientation_as_reference>
+      </plugin>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+</robot>

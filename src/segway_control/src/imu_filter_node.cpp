@@ -106,7 +106,7 @@ void ImuFilterNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     const double az = msg->linear_acceleration.z;
 
     const double pitch_accel = (std::abs(az) > 1e-9)
-        ? std::atan2(ax, az)
+        ? std::atan2(-ax, az)
         : 0.0;
 
     // ── 4. Filtre complémentaire ──────────────────────────────────────────────

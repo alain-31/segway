@@ -148,7 +148,7 @@ ros2 launch segway_description display.launch.py
 ### Vérifier le URDF
 
 ```bash
-ros2 run xacro xacro src/segway_description/urdf/segway_mini.urdf.xacro
+ros2 run xacro xacro src/segway_description/urdf/segway.urdf.xacro
 ```
 
 ---
@@ -187,9 +187,22 @@ connect XX:XX:XX:XX:XX:XX
 - [ ] Interface STM32 (UART)
 - [ ] Tests simulation Gazebo
 - [ ] Build physique
+---
+
+## Commandes
+
+# Terminal 1 : Gazebo
+ros2 launch segway_gazebo gazebo.launch.py
+
+# Terminal 2 : filtre IMU
+ros2 launch segway_control imu_filter.launch.py
+
+# Terminal 3 : PID
+ros2 launch segway_control balance_controller.launch.py
 
 ---
 
 ## Auteur
 
 alain-31 — [github.com/alain-31/segway_ros2_ws](https://github.com/alain-31/segway_ros2_ws)
+
