@@ -18,7 +18,7 @@
 
   Roues : Ø65mm × 27mm
   Largeur totale : 210 + 2×27 = 264mm
-  Anti-patinage : mu1=mu2=3.0, kp=1e6, kd=100
+  Anti-patinage : mu1=mu2=1.0, kp=100000, kd=10
   ─────────────────────────────────────────────────────────────────────────────
 -->
 <robot name="segway_mini" xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -288,6 +288,29 @@
   </joint>
 
   <!-- ============================================================
+       ROS 2 CONTROL — commande des roues en effort/couple
+       Les joints de roues reçoivent directement une consigne d'effort.
+       Les états position/velocity restent disponibles pour odométrie/diagnostic.
+  ============================================================ -->
+  <ros2_control name="GazeboSystem" type="system">
+    <hardware>
+      <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+    </hardware>
+
+    <joint name="left_wheel_joint">
+      <command_interface name="effort"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="right_wheel_joint">
+      <command_interface name="effort"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <!-- ============================================================
        GAZEBO – PLUGINS ROS2 / Gazebo Classic (gazebo11)
   ============================================================ -->
 
@@ -301,6 +324,17 @@
     <kp>100000</kp> <kd>10</kd>
   </gazebo>
 
+  <!-- Plugin gazebo_ros2_control — pont Gazebo Classic ↔ ros2_control -->
+<gazebo>
+  <plugin filename="libgazebo_ros2_control.so"
+          name="gazebo_ros2_control">
+    <ros>
+      <namespace>/segway</namespace>
+    </ros>
+    <parameters>$(find segway_gazebo)/config/segway_controllers.yaml</parameters>
+  </plugin>
+</gazebo>
+
   <!-- Plugin joint_state_publisher -->
   <gazebo>
     <plugin filename="libgazebo_ros_joint_state_publisher.so"
@@ -312,30 +346,6 @@
       <update_rate>50</update_rate>
       <joint_name>left_wheel_joint</joint_name>
       <joint_name>right_wheel_joint</joint_name>
-    </plugin>
-  </gazebo>
-
-  <!-- Plugin diff_drive
-       wheel_separation = 0.210 + 0.027 = 0.237m
-       wheel_diameter   = 2 × 0.0325   = 0.065m
-  -->
-  <gazebo>
-    <plugin filename="libgazebo_ros_diff_drive.so"
-            name="diff_drive_controller">
-      <ros>
-        <namespace>/segway</namespace>
-      </ros>
-      <left_joint>left_wheel_joint</left_joint>
-      <right_joint>right_wheel_joint</right_joint>
-      <wheel_separation>0.237</wheel_separation>
-      <wheel_diameter>0.065</wheel_diameter>
-      <max_wheel_torque>2.0</max_wheel_torque>
-      <max_wheel_acceleration>10.0</max_wheel_acceleration>
-      <publish_odom>true</publish_odom>
-      <publish_odom_tf>false</publish_odom_tf>
-      <publish_wheel_tf>false</publish_wheel_tf>
-      <odometry_frame>odom</odometry_frame>
-      <robot_base_frame>base_link</robot_base_frame>
     </plugin>
   </gazebo>
 

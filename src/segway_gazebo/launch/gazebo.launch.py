@@ -66,6 +66,9 @@ def generate_launch_description():
         pkg_segway_description, 'urdf', 'segway.urdf.xacro'
     )
     robot_description = xacro.process_file(xacro_file).toxml()
+    # Remove XML comments before passing robot_description to Gazebo/ROS 2 Control
+    import re
+    robot_description = re.sub(r'<!--.*?-->', '', robot_description, flags=re.DOTALL)
 
     # ── Noeuds ────────────────────────────────────────────────────────────────
 
@@ -85,13 +88,13 @@ def generate_launch_description():
         package='robot_state_publisher',
         executable='robot_state_publisher',
         name='robot_state_publisher',
+        namespace='segway',
         output='screen',
         parameters=[{
             'robot_description': robot_description,
             'use_sim_time': use_sim_time,
         }]
-    )
-
+)
     # 3. Spawner — délai 3s pour laisser Gazebo démarrer complètement
     #    avant d'injecter le robot (évite le spawn pendant le chargement)
     spawn_entity = TimerAction(
@@ -102,7 +105,7 @@ def generate_launch_description():
                 executable='spawn_entity.py',
                 name='spawn_segway',
                 arguments=[
-                    '-topic', 'robot_description',
+                    '-topic', '/segway/robot_description',
                     '-entity', 'segway_mini',
                     '-x', '0.0',
                     '-y', '0.0',
