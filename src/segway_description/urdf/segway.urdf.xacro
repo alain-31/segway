@@ -316,11 +316,11 @@
 
   <!-- Friction roues sur sol — anti-patinage -->
   <gazebo reference="left_wheel_link">
-    <mu1>1.0</mu1>  <mu2>1.0</mu2>
+    <mu1>2.0</mu1>  <mu2>2.0</mu2>
     <kp>100000</kp> <kd>10</kd>
   </gazebo>
   <gazebo reference="right_wheel_link">
-    <mu1>1.0</mu1>  <mu2>1.0</mu2>
+    <mu1>2.0</mu1>  <mu2>2.0</mu2>
     <kp>100000</kp> <kd>10</kd>
   </gazebo>
 

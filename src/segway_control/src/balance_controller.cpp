@@ -11,8 +11,27 @@
 #include <cmath>
 #include <algorithm>
 
+#include <std_msgs/msg/float64_multi_array.hpp>
+
 namespace segway_control
 {
+
+namespace
+{
+rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr g_pub_wheel_effort;
+
+void publish_wheel_effort(double left_effort, double right_effort)
+{
+    if (!g_pub_wheel_effort) {
+        return;
+    }
+
+    std_msgs::msg::Float64MultiArray msg;
+    msg.data = {left_effort, right_effort};
+    g_pub_wheel_effort->publish(msg);
+}
+}
+
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
@@ -37,11 +56,12 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     this->declare_parameter<double>("kp",            3.0);
     this->declare_parameter<double>("ki",            0.0);
     this->declare_parameter<double>("kd",            0.3);
-    this->declare_parameter<double>("output_max",    1.0);
+    this->declare_parameter<double>("output_max",    0.20);  // Nm, effort control
     this->declare_parameter<double>("integral_max",  1.0);
     this->declare_parameter<double>("pitch_limit",   1.2);
-    this->declare_parameter<double>("deadband",      0.05);
-    this->declare_parameter<bool>  ("publish_debug", true);
+    this->declare_parameter<double>("deadband",      0.0);   // Nm, keep 0.0 at first with effort control
+    this->declare_parameter<double>("dead_zone",     0.025);
+     this->declare_parameter<bool>  ("publish_debug", true);
 
     // ── Outer loop parameters ─────────────────────────────────────────────────
     this->declare_parameter<double>("vel_kp",              0.3);
@@ -54,7 +74,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     this->declare_parameter<std::string>("imu_topic",     "/segway/imu/filtered");
     this->declare_parameter<std::string>("odom_topic",    "/segway/odom");
     this->declare_parameter<std::string>("joy_topic",     "/segway/cmd_vel_user");
-    this->declare_parameter<std::string>("cmd_vel_topic", "/segway/cmd_vel");
+    this->declare_parameter<std::string>("effort_topic",  "/segway/wheel_effort_controller/commands");
 
     kp_           = this->get_parameter("kp").as_double();
     ki_           = this->get_parameter("ki").as_double();
@@ -74,7 +94,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     const auto imu_topic     = this->get_parameter("imu_topic").as_string();
     const auto odom_topic    = this->get_parameter("odom_topic").as_string();
     const auto joy_topic     = this->get_parameter("joy_topic").as_string();
-    const auto cmd_vel_topic = this->get_parameter("cmd_vel_topic").as_string();
+    const auto effort_topic  = this->get_parameter("effort_topic").as_string();
 
     // ── QoS ───────────────────────────────────────────────────────────────────
     auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort();
@@ -93,7 +113,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
         std::bind(&BalanceController::joy_callback, this, std::placeholders::_1));
 
     // ── Publishers ────────────────────────────────────────────────────────────
-    pub_cmd_vel_ = this->create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic, 10);
+    g_pub_wheel_effort = this->create_publisher<std_msgs::msg::Float64MultiArray>(effort_topic, 10);
 
     if (publish_debug) {
         pub_pid_error_       = this->create_publisher<std_msgs::msg::Float64>(
@@ -106,19 +126,19 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
             "/segway/debug/pitch_setpoint",  10);
     }
 
-    // ── Outer loop timer — 20 Hz ──────────────────────────────────────────────
+    // ── Outer loop timer — 50 Hz ──────────────────────────────────────────────
     vel_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(50),
+        std::chrono::milliseconds(20),
         std::bind(&BalanceController::velocity_loop_callback, this));
 
     RCLCPP_INFO(this->get_logger(),
         "BalanceController started | "
-        "Inner: Kp=%.2f Ki=%.2f Kd=%.2f | "
-        "Outer: Kp=%.2f Ki=%.2f Kd=%.2f pitch_max=%.3f rad | "
-        "output_max=%.2f m/s | deadband=%.3f m/s | pitch_limit=%.3f rad",
-        kp_, ki_, kd_,
+        "Inner: Kp=%.2f Ki=%.2f Kd=%.2f int_max=%.2f| "
+        "Outer: Kp=%.2f Ki=%.3f Kd=%.3f pitch_max=%.3f rad | "
+        "output_max=%.2f N.m | pitch_limit=%.3f rad",
+        kp_, ki_, kd_, integral_max_,
         vel_kp_, vel_ki_, vel_kd_, pitch_setpoint_max_,
-        output_max_, deadband_, pitch_limit_);
+        output_max_,pitch_limit_);
 }
 
 // ── Odom callback — update measured vx and pos_x ─────────────────────────────
@@ -135,6 +155,7 @@ void BalanceController::joy_callback(const geometry_msgs::msg::Twist::SharedPtr 
 {
     vel_setpoint_      = msg->linear.x;
     yaw_rate_setpoint_ = msg->angular.z;
+    reset_pid();  // reset inner integrator on new velocity command
 }
 
 // ── Outer loop — 20 Hz ───────────────────────────────────────────────────────
@@ -212,7 +233,7 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
                 "Pitch limit exceeded (%.3f rad) — emergency stop", pitch);
             enabled_ = false;
         }
-        pub_cmd_vel_->publish(geometry_msgs::msg::Twist());
+        publish_wheel_effort(0.0, 0.0);
         reset_pid();
         reset_vel_pid();
         return;
@@ -227,22 +248,29 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     const double output = compute_pid(error, dt);
 
     // ── 5. Deadband + publish ─────────────────────────────────────────────────
-    double cmd_x = output;
-    if (std::abs(output) > 1e-6 && std::abs(output) < deadband_) {
-        cmd_x = std::copysign(deadband_, output);
-    }
+    const double balance_effort = output;
+    const double yaw_effort     = yaw_rate_setpoint_;
 
-    geometry_msgs::msg::Twist cmd;
-    cmd.linear.x  = cmd_x;
-    cmd.angular.z = yaw_rate_setpoint_;
-    pub_cmd_vel_->publish(cmd);
+    const double left_effort  = balance_effort - yaw_effort;
+    const double right_effort = balance_effort + yaw_effort;
+
+    publish_wheel_effort(left_effort, right_effort);
 
     // ── 6. Log ────────────────────────────────────────────────────────────────
-    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 20,
-        "pitch=%.3f pitch_sp=%.4f err=%.3f out=%.3f cmd=%.3f vx=%.3f pos_x=%.3f sat=%s deadb=%s",
-        pitch, pitch_setpoint_, error, output, cmd_x, vx_, pos_x_,
-        std::abs(output) >= output_max_ ? "YES" : "no",
-        std::abs(output) > 1e-6 && std::abs(output) < deadband_ ? "YES" : "no");
+RCLCPP_INFO_THROTTLE(
+    this->get_logger(),
+    *this->get_clock(),
+    50,
+    "pitch=%.3f err=%.3f pid=%.3f bal=%.3f yaw=%.3f "
+    "L=%.3f R=%.3f sat=%s",
+    pitch,
+    error,
+    output,
+    balance_effort,
+    yaw_effort,
+    left_effort,
+    right_effort,
+    std::abs(output) >= output_max_ ? "YES" : "no");
 
     if (pub_pid_error_ && pub_pid_output_) {
         std_msgs::msg::Float64 msg_error, msg_output;

@@ -111,7 +111,7 @@ def generate_launch_description():
                     '-y', '0.0',
                     '-z', z_spawn,
                     '-R', '0.0',
-                    '-P', '0.0',
+                    '-P', '0.01',
                     '-Y', '0.0',
                 ],
                 output='screen'

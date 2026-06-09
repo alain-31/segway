@@ -2,37 +2,37 @@
 
 ## 0. Sauvegarde de la version actuelle
 
-- [ ] Vérifier que la version actuelle stabilise bien le robot avec `diff_drive` et boucle externe désactivée.
-- [ ] Committer cette version stable.
-- [ ] Ajouter un tag Git, par exemple `stable-balance-diffdrive`.
-- [ ] Créer une branche dédiée, par exemple `feature/effort-control`.
+- [x] Vérifier que la version actuelle stabilise bien le robot avec `diff_drive` et boucle externe désactivée.
+- [x] Committer cette version stable.
+- [x] Ajouter un tag Git, par exemple `stable-balance-diffdrive`.
+- [x] Créer une branche dédiée, par exemple `feature/effort-control`.
 
 ## 1. Modification de l'URDF
 
-- [ ] Supprimer ou commenter le plugin `libgazebo_ros_diff_drive.so`.
-- [ ] Ajouter le plugin `libgazebo_ros2_control.so`.
-- [ ] Ajouter une section `<ros2_control>` dans l'URDF.
-- [ ] Déclarer `left_wheel_joint` avec `command_interface="effort"`.
-- [ ] Déclarer `right_wheel_joint` avec `command_interface="effort"`.
-- [ ] Garder les `state_interface` `position` et `velocity` pour les deux roues.
-- [ ] Conserver provisoirement les paramètres de contact roue/sol actuels (`mu=1.0`, `kp=100000`, `kd=10`).
+- [x] Supprimer ou commenter le plugin `libgazebo_ros_diff_drive.so`.
+- [x] Ajouter le plugin `libgazebo_ros2_control.so`.
+- [x] Ajouter une section `<ros2_control>` dans l'URDF.
+- [x] Déclarer `left_wheel_joint` avec `command_interface="effort"`.
+- [x] Déclarer `right_wheel_joint` avec `command_interface="effort"`.
+- [x] Garder les `state_interface` `position` et `velocity` pour les deux roues.
+- [x] Conserver provisoirement les paramètres de contact roue/sol actuels (`mu=1.0`, `kp=100000`, `kd=10`).
 
 ## 2. Configuration ROS 2 Control
 
-- [ ] Créer un fichier `controllers.yaml`.
-- [ ] Ajouter `joint_state_broadcaster`.
-- [ ] Ajouter un contrôleur d'effort pour les deux roues.
+- [x] Créer un fichier `controllers.yaml`.
+- [x] Ajouter `joint_state_broadcaster`.
+- [x] Ajouter un contrôleur d'effort pour les deux roues.
 - [ ] Vérifier le nom exact du contrôleur disponible avec `ros2 control list_controller_types`.
-- [ ] Configurer les joints `left_wheel_joint` et `right_wheel_joint` dans le contrôleur d'effort.
-- [ ] Définir une fréquence de mise à jour raisonnable, par exemple `200 Hz`.
+- [x] Configurer les joints `left_wheel_joint` et `right_wheel_joint` dans le contrôleur d'effort.
+- [x] Définir une fréquence de mise à jour raisonnable, par exemple `200 Hz`.
 
 ## 3. Modification du launch Gazebo
 
-- [ ] Charger le fichier `controllers.yaml` au démarrage de Gazebo.
-- [ ] Lancer le `joint_state_broadcaster` avec un spawner.
-- [ ] Lancer le contrôleur d'effort avec un spawner.
-- [ ] Vérifier que les contrôleurs passent à l'état `active`.
-- [ ] Vérifier que les topics de commande d'effort sont bien créés.
+- [x] Charger le fichier `controllers.yaml` au démarrage de Gazebo.
+- [x] Lancer le `joint_state_broadcaster` avec un spawner.
+- [x] Lancer le contrôleur d'effort avec un spawner.
+- [x] Vérifier que les contrôleurs passent à l'état `active`.
+- [x] Vérifier que les topics de commande d'effort sont bien créés.
 
 ## 4. Test manuel des roues
 

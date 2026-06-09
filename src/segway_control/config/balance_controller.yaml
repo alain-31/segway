@@ -13,7 +13,7 @@ balance_controller:
     #
     # Kp : too low → falls slowly without recovering
     #      too high → fast oscillations
-    kp: 5.0
+    kp: 6.0
 
     # Ki : corrects static pitch bias
     #      too high → windup, instability
@@ -21,14 +21,12 @@ balance_controller:
 
     # Kd : damps oscillations
     #      too high → gyro noise amplification
-    kd: 0.3
+    kd: 0.05
 
-    output_max:   1.0    # max wheel velocity (m/s)
-    integral_max: 1.0    # anti-windup
+    integral_max: 0.2    # anti-windup
 
-    # Deadband: pushes small commands to minimum threshold
-    # Prevents diff_drive from ignoring tiny commands
-    deadband: 0.05       # m/s
+    output_max: 1.5    # max wheel effort (Nm)
+    deadband: 0.0      # Nm
 
     # Safety: emergency stop if pitch exceeds this
     pitch_limit: 1.2     # rad

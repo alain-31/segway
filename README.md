@@ -200,6 +200,14 @@ ros2 launch segway_control imu_filter.launch.py
 # Terminal 3 : PID
 ros2 launch segway_control balance_controller.launch.py
 
+
+# Terminal 4 : contoller
+ros2 run controller_manager spawner joint_state_broadcaster \
+  -c /segway/controller_manager
+
+ros2 run controller_manager spawner wheel_effort_controller \
+  -c /segway/controller_manager
+
 ---
 
 ## Auteur
