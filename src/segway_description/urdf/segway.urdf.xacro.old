@@ -287,41 +287,7 @@
     <origin xyz="0 0 ${z_imu}" rpy="0 0 0"/>
   </joint>
 
-  
-  <!-- Wheel rotation markers -->
-  <link name="left_wheel_marker">
-    <visual>
-      <origin xyz="0 0.010 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.008 0.008 0.030"/>
-      </geometry>
-      <material name="imu_red"/>
-    </visual>
-  </link>
-
-  <joint name="left_wheel_marker_joint" type="fixed">
-    <parent link="left_wheel_link"/>
-    <child link="left_wheel_marker"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint>
-
-  <link name="right_wheel_marker">
-    <visual>
-      <origin xyz="0 -0.010 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.008 0.008 0.030"/>
-      </geometry>
-      <material name="elec_blue"/>
-    </visual>
-  </link>
-
-  <joint name="right_wheel_marker_joint" type="fixed">
-    <parent link="right_wheel_link"/>
-    <child link="right_wheel_marker"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint>
-
-<!-- ============================================================
+  <!-- ============================================================
        ROS 2 CONTROL — commande des roues en effort/couple
        Les joints de roues reçoivent directement une consigne d'effort.
        Les états position/velocity restent disponibles pour odométrie/diagnostic.
@@ -358,21 +324,7 @@
     <kp>1000000</kp> <kd>100</kd>
   </gazebo>
 
-  
-  <!-- Gazebo materials -->
-  <gazebo reference="left_wheel_marker">
-    <material>Gazebo/Red</material>
-  </gazebo>
-
-  <gazebo reference="right_wheel_marker">
-    <material>Gazebo/Blue</material>
-  </gazebo>
-
-  <gazebo reference="imu_link">
-    <material>Gazebo/Red</material>
-  </gazebo>
-
-<!-- Plugin gazebo_ros2_control — pont Gazebo Classic ↔ ros2_control -->
+  <!-- Plugin gazebo_ros2_control — pont Gazebo Classic ↔ ros2_control -->
 <gazebo>
   <plugin filename="libgazebo_ros2_control.so"
           name="gazebo_ros2_control">
@@ -425,7 +377,6 @@
       </imu>
     </sensor>
   </gazebo>
-
 
   <!-- Ground truth odometry (Gazebo physics engine) -->
   <gazebo>

@@ -111,11 +111,31 @@ def generate_launch_description():
                     '-y', '0.0',
                     '-z', z_spawn,
                     '-R', '0.0',
-                    '-P', '0.01',
+                    '-P', '-0.01',
                     '-Y', '0.0',
                 ],
                 output='screen'
             )
+        ]
+    )
+
+    joint_state_broadcaster_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "joint_state_broadcaster",
+            "-c",
+            "/segway/controller_manager"
+        ]
+    )
+
+    wheel_effort_controller_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "wheel_effort_controller",
+            "-c",
+            "/segway/controller_manager"
         ]
     )
 
@@ -128,4 +148,6 @@ def generate_launch_description():
         gazebo,
         robot_state_publisher,
         spawn_entity,
+        joint_state_broadcaster_spawner,
+        wheel_effort_controller_spawner
     ])

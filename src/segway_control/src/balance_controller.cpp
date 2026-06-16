@@ -61,7 +61,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     this->declare_parameter<double>("pitch_limit",   1.2);
     this->declare_parameter<double>("deadband",      0.0);   // Nm, keep 0.0 at first with effort control
     this->declare_parameter<double>("dead_zone",     0.025);
-     this->declare_parameter<bool>  ("publish_debug", true);
+    this->declare_parameter<bool>  ("publish_debug", true);
 
     // ── Outer loop parameters ─────────────────────────────────────────────────
     this->declare_parameter<double>("vel_kp",              0.3);
@@ -105,7 +105,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
         std::bind(&BalanceController::imu_callback, this, std::placeholders::_1));
 
     sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
-        odom_topic, 10,
+        odom_topic, qos,
         std::bind(&BalanceController::odom_callback, this, std::placeholders::_1));
 
     sub_joy_ = this->create_subscription<geometry_msgs::msg::Twist>(
@@ -131,21 +131,44 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
         std::chrono::milliseconds(20),
         std::bind(&BalanceController::velocity_loop_callback, this));
 
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Subscribing to odom_topic='%s'",
+        odom_topic.c_str());
+
     RCLCPP_INFO(this->get_logger(),
         "BalanceController started | "
-        "Inner: Kp=%.2f Ki=%.2f Kd=%.2f int_max=%.2f| "
-        "Outer: Kp=%.2f Ki=%.3f Kd=%.3f pitch_max=%.3f rad | "
+        "Velocity source: /segway/odom ground truth | "
+        "Inner: Kp=%.2f Ki=%.2f Kd=%.2f int_max=%.2f | "
+        "Outer: Kp=%.3f Ki=%.3f Kd=%.3f pitch_max=%.3f rad | "
         "output_max=%.2f N.m | pitch_limit=%.3f rad",
         kp_, ki_, kd_, integral_max_,
         vel_kp_, vel_ki_, vel_kd_, pitch_setpoint_max_,
-        output_max_,pitch_limit_);
+        output_max_, pitch_limit_);
 }
 
 // ── Odom callback — update measured vx and pos_x ─────────────────────────────
 
 void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
-    vx_    = msg->twist.twist.linear.x;
+    const auto& q = msg->pose.pose.orientation;
+
+    const double qw = q.w;
+    const double qx = q.x;
+    const double qy = q.y;
+    const double qz = q.z;
+
+    const double yaw = std::atan2(
+        2.0 * (qw * qz + qx * qy),
+        1.0 - 2.0 * (qy * qy + qz * qz)
+    );
+
+    const double vx_world = msg->twist.twist.linear.x;
+    const double vy_world = msg->twist.twist.linear.y;
+
+    // Longitudinal ground-truth velocity in the robot forward axis.
+    vx_ = std::cos(yaw) * vx_world + std::sin(yaw) * vy_world;
+
     pos_x_ = msg->pose.pose.position.x;
 }
 
@@ -175,9 +198,10 @@ void BalanceController::velocity_loop_callback()
 
     if (dt <= 0.0 || dt > 1.0) return;
 
-    // Outer PID: error = measured_vx - desired_vx
-    // Positive error (going too fast forward) → negative pitch setpoint (lean back)
-    const double vel_error = vel_setpoint_ -  vx_ ;
+    // Outer PID: vx_ comes only from /segway/odom ground truth.
+    // Positive vel_error means the robot is moving too much backward
+    // for a zero setpoint, so the controller asks for a positive pitch setpoint.
+    const double vel_error = vel_setpoint_ - vx_;
     pitch_setpoint_ = compute_vel_pid(vel_error, dt);
 
     // Debug
@@ -207,6 +231,10 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
         return;
     }
 
+    if (!enabled_) {
+        return;
+    }
+
     const double dt = t_now - last_time_;
 
     if (dt < 0.0) {
@@ -226,6 +254,8 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     const double qw    = msg->orientation.w;
     const double pitch = std::atan2(2.0 * qw * qy, 1.0 - 2.0 * qy * qy);
 
+
+
     // ── 3. Safety ─────────────────────────────────────────────────────────────
     if (std::abs(pitch) > pitch_limit_) {
         if (enabled_) {
@@ -238,11 +268,6 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
         reset_vel_pid();
         return;
     }
-    if (!enabled_) {
-        RCLCPP_INFO(this->get_logger(), "Pitch OK — controller re-enabled");
-        enabled_ = true;
-    }
-
     // ── 4. Inner PID ──────────────────────────────────────────────────────────
     const double error  = pitch - pitch_setpoint_;
     const double output = compute_pid(error, dt);
@@ -256,22 +281,26 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
 
     publish_wheel_effort(left_effort, right_effort);
 
-    // ── 6. Log ────────────────────────────────────────────────────────────────
+    // ── 6. outer pid  ───────────────────────────────────────────────────────── 
+    double vel_error = vel_setpoint_ - vx_; 
+
+    // ── 7. Log ────────────────────────────────────────────────────────────────
 RCLCPP_INFO_THROTTLE(
     this->get_logger(),
     *this->get_clock(),
     50,
-    "pitch=%.3f err=%.3f pid=%.3f bal=%.3f yaw=%.3f "
-    "L=%.3f R=%.3f sat=%s",
+    "pitch=%.6f vx=%.3f pitch_sp=%.6f err=%.3f pid=%.3f yaw=%.3f "
+    "L=%.3f R=%.3f vel_error=%.3f ",
     pitch,
+    vx_,
+    pitch_setpoint_,
     error,
     output,
-    balance_effort,
     yaw_effort,
     left_effort,
     right_effort,
-    std::abs(output) >= output_max_ ? "YES" : "no");
-
+    vel_error
+    );
     if (pub_pid_error_ && pub_pid_output_) {
         std_msgs::msg::Float64 msg_error, msg_output;
         msg_error.data  = error;

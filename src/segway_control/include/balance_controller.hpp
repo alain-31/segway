@@ -89,8 +89,8 @@ private:
     bool   vel_initialized_;
 
     // ── Measured state ────────────────────────────────────────────────────────
-    double vx_;       // measured linear velocity from odom (m/s)
-    double pos_x_;    // measured position from odom (m)
+    double vx_;       // longitudinal ground-truth velocity from /segway/odom (m/s)
+    double pos_x_;    // measured position from /segway/odom (m)
     double yaw_rate_setpoint_;  // from joystick angular.z
 
     // ── Safety ────────────────────────────────────────────────────────────────

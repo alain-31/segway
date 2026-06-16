@@ -36,13 +36,13 @@
 
 ## 4. Test manuel des roues
 
-- [ ] Démarrer Gazebo sans activer le PID d'équilibre.
-- [ ] Publier manuellement un effort positif sur les deux roues.
-- [ ] Vérifier que les roues tournent dans le bon sens.
-- [ ] Publier manuellement un effort négatif sur les deux roues.
-- [ ] Vérifier que les roues tournent dans le sens inverse.
-- [ ] Tester un effort nul et vérifier que la commande est bien annulée.
-- [ ] Noter l'ordre de grandeur des efforts utiles.
+- [x] Démarrer Gazebo sans activer le PID d'équilibre.
+- [x] Publier manuellement un effort positif sur les deux roues.
+- [x] Vérifier que les roues tournent dans le bon sens.
+- [x] Publier manuellement un effort négatif sur les deux roues.
+- [x] Vérifier que les roues tournent dans le sens inverse.
+- [x] Tester un effort nul et vérifier que la commande est bien annulée.
+- [x] Noter l'ordre de grandeur des efforts utiles.
 
 ## 5. Modification du `balance_controller`
 
