@@ -7,6 +7,10 @@ balance_controller:
     joy_topic:     /segway/cmd_vel_joy    # input: joystick setpoint
     cmd_vel_topic: /segway/cmd_vel        # output: motor command
 
+
+    # ── Set point ────────────────────────────────────────────────────────────────
+    pitch_setpoint: 0.02
+
     # ════════════════════════════════════════════════════════════════════════
     # INNER LOOP — pitch balance (100 Hz, IMU-driven)
     # ════════════════════════════════════════════════════════════════════════
@@ -21,15 +25,14 @@ balance_controller:
 
     # Kd : damps oscillations
     #      too high → gyro noise amplification
-    kd: 0.06
+    kd: 0.07
 
     integral_max: 0.2    # anti-windup
-
-    output_max: 1.5    # max wheel effort (Nm)
+    output_max: 0.35    # max wheel effort (Nm)
     deadband: 0.0      # Nm
 
     # Safety: emergency stop if pitch exceeds this
-    pitch_limit: 1.2     # rad
+    pitch_limit: 0.5     # rad
 
     # ════════════════════════════════════════════════════════════════════════
     # OUTER LOOP — velocity control (20 Hz, timer-driven)
@@ -39,20 +42,20 @@ balance_controller:
     # vel_kp : how aggressively to lean to correct velocity error
     #          too high → oscillation, instability
     #          too low  → slow drift correction
-    vel_kp: 0.082 #0.08
+    vel_kp: 0.1 # 0.082
 
     # vel_ki : corrects steady-state velocity error
     #          keep small to avoid windup
-    vel_ki: 0.0
+    vel_ki: 0.00
 
     # vel_kd : damps velocity overshoot
-    vel_kd: 0.00
+    vel_kd: 0.01
 
     # Maximum pitch setpoint the outer loop can command (safety)
-    pitch_setpoint_max: 0.1   # rad (~8.6 degrees)
+    pitch_setpoint_max: 0.09   # rad (~8.6 degrees)
 
     # Anti-windup for velocity integrator
-    vel_integral_max: 0.05      # rad
+    vel_integral_max: 0.5      # rad
 
     # ── Debug ────────────────────────────────────────────────────────────────
     publish_debug: true

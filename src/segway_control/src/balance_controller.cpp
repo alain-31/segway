@@ -58,6 +58,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     this->declare_parameter<double>("kd",            0.3);
     this->declare_parameter<double>("output_max",    0.20);  // Nm, effort control
     this->declare_parameter<double>("integral_max",  1.0);
+    this->declare_parameter<double>("pitch_setpoint",0.0);
     this->declare_parameter<double>("pitch_limit",   1.2);
     this->declare_parameter<double>("deadband",      0.0);   // Nm, keep 0.0 at first with effort control
     this->declare_parameter<double>("dead_zone",     0.025);
@@ -68,6 +69,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     this->declare_parameter<double>("vel_ki",              0.05);
     this->declare_parameter<double>("vel_kd",              0.01);
     this->declare_parameter<double>("vel_integral_max",    0.1);
+    this->declare_parameter<double>("vel_d_max",           0.05);
     this->declare_parameter<double>("pitch_setpoint_max",  0.15);  // rad
 
     // ── Topics ────────────────────────────────────────────────────────────────
@@ -81,6 +83,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     kd_           = this->get_parameter("kd").as_double();
     output_max_   = this->get_parameter("output_max").as_double();
     integral_max_ = this->get_parameter("integral_max").as_double();
+    pitch_setpoint_  = this->get_parameter("pitch_setpoint").as_double();
     pitch_limit_  = this->get_parameter("pitch_limit").as_double();
     deadband_     = this->get_parameter("deadband").as_double();
     const bool publish_debug = this->get_parameter("publish_debug").as_bool();
@@ -89,6 +92,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     vel_ki_             = this->get_parameter("vel_ki").as_double();
     vel_kd_             = this->get_parameter("vel_kd").as_double();
     vel_integral_max_   = this->get_parameter("vel_integral_max").as_double();
+    vel_d_max_   = this->get_parameter("vel_d_max").as_double();
     pitch_setpoint_max_ = this->get_parameter("pitch_setpoint_max").as_double();
 
     const auto imu_topic     = this->get_parameter("imu_topic").as_string();
@@ -131,19 +135,16 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
         std::chrono::milliseconds(20),
         std::bind(&BalanceController::velocity_loop_callback, this));
 
-    RCLCPP_INFO(
-        this->get_logger(),
-        "Subscribing to odom_topic='%s'",
-        odom_topic.c_str());
+    start_time_ = this->now();
 
     RCLCPP_INFO(this->get_logger(),
         "BalanceController started | "
         "Velocity source: /segway/odom ground truth | "
         "Inner: Kp=%.2f Ki=%.2f Kd=%.2f int_max=%.2f | "
-        "Outer: Kp=%.3f Ki=%.3f Kd=%.3f pitch_max=%.3f rad | "
+        "Outer: Kp=%.3f Ki=%.4f Kd=%.4f pitch_setpoint=%.3f rad | "
         "output_max=%.2f N.m | pitch_limit=%.3f rad",
         kp_, ki_, kd_, integral_max_,
-        vel_kp_, vel_ki_, vel_kd_, pitch_setpoint_max_,
+        vel_kp_, vel_ki_, vel_kd_, pitch_setpoint_,
         output_max_, pitch_limit_);
 }
 
@@ -202,12 +203,13 @@ void BalanceController::velocity_loop_callback()
     // Positive vel_error means the robot is moving too much backward
     // for a zero setpoint, so the controller asks for a positive pitch setpoint.
     const double vel_error = vel_setpoint_ - vx_;
+
     pitch_setpoint_ = compute_vel_pid(vel_error, dt);
 
     // Debug
     RCLCPP_DEBUG(this->get_logger(),
-        "vel_loop | vx=%.3f setpoint=%.3f error=%.3f pitch_sp=%.4f",
-        vx_, vel_setpoint_, vel_error, pitch_setpoint_);
+        "vel_loop | vx=%.3f setpoint=%.3f error=%.3f pitch_sp=%.4f , dt=%.4f",
+        vx_, vel_setpoint_, vel_error, pitch_setpoint_, dt);
 
     if (pub_vel_error_ && pub_pitch_setpoint_) {
         std_msgs::msg::Float64 msg_vel_err, msg_pitch_sp;
@@ -254,8 +256,6 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     const double qw    = msg->orientation.w;
     const double pitch = std::atan2(2.0 * qw * qy, 1.0 - 2.0 * qy * qy);
 
-
-
     // ── 3. Safety ─────────────────────────────────────────────────────────────
     if (std::abs(pitch) > pitch_limit_) {
         if (enabled_) {
@@ -285,12 +285,16 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     double vel_error = vel_setpoint_ - vx_; 
 
     // ── 7. Log ────────────────────────────────────────────────────────────────
-RCLCPP_INFO_THROTTLE(
+
+    const double t = (this->now() - start_time_).seconds();
+    RCLCPP_INFO_THROTTLE(
     this->get_logger(),
     *this->get_clock(),
     50,
+    "t=%.3f"
     "pitch=%.6f vx=%.3f pitch_sp=%.6f err=%.3f pid=%.3f yaw=%.3f "
     "L=%.3f R=%.3f vel_error=%.3f ",
+    t,
     pitch,
     vx_,
     pitch_setpoint_,
@@ -323,7 +327,7 @@ double BalanceController::compute_pid(double error, double dt)
     const double d = kd_ * (error - prev_error_) / dt;
     prev_error_    = error;
 
-    return std::clamp(p + i + d, -output_max_, output_max_);
+    return std::clamp(p + i + d, -output_max_, output_max_); 
 }
 
 void BalanceController::reset_pid()
@@ -340,16 +344,46 @@ double BalanceController::compute_vel_pid(double error, double dt)
     const double p = vel_kp_ * error;
 
     vel_integral_ += error * dt;
-    vel_integral_  = std::clamp(vel_integral_, -vel_integral_max_, vel_integral_max_);
+    vel_integral_ = std::clamp(
+        vel_integral_,
+        -vel_integral_max_,
+        vel_integral_max_);
+
     const double i = vel_ki_ * vel_integral_;
 
-    const double d = vel_kd_ * (error - vel_prev_error_) / dt;
+    const double d_raw =
+        vel_kd_ * (error - vel_prev_error_) / dt;
+
+    const double d =
+        std::clamp(d_raw, -vel_d_max_, vel_d_max_);
+
     vel_prev_error_ = error;
 
-    // Output is pitch_setpoint — clamped to safety limit
-    return std::clamp(p + i + d, -pitch_setpoint_max_, pitch_setpoint_max_);
-}
+    const double raw = p + i + d;
+    const double out =
+        std::clamp(raw,
+                   -pitch_setpoint_max_,
+                   pitch_setpoint_max_);
+    const double t = (this->now() - start_time_).seconds();
 
+    RCLCPP_INFO_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        100,
+        "t=%.3f"
+        "vel_pid | err=%.3f p=%.4f i=%.4f "
+        "d_raw=%.4f d=%.4f raw=%.4f out=%.4f",
+        t,
+        error,
+        p,
+        i,
+        d_raw,
+        d,
+        raw,
+        out);
+
+    return out;
+}
 void BalanceController::reset_vel_pid()
 {
     vel_integral_    = 0.0;

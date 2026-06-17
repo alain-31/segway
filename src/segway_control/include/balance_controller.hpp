@@ -81,6 +81,7 @@ private:
     double vel_setpoint_;           // target linear velocity (m/s), from joystick
     double pitch_setpoint_max_;     // max pitch setpoint from outer loop (rad)
     double vel_integral_max_;
+    double vel_d_max_;
 
     // ── Outer loop state ──────────────────────────────────────────────────────
     double vel_integral_;
@@ -96,6 +97,9 @@ private:
     // ── Safety ────────────────────────────────────────────────────────────────
     double pitch_limit_;
     bool   enabled_;
+
+    // ── logging ───────────────────────────────────────────────────────
+    rclcpp::Time start_time_;
 
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr       sub_imu_;
