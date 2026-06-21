@@ -30,6 +30,7 @@
 
 #include <memory>
 #include <string>
+#include <deque>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
@@ -65,6 +66,8 @@ private:
     double kd_;
     double output_max_;
     double integral_max_;
+    double pitch_;
+    double prev_pitch_;
     double pitch_setpoint_;
     double deadband_;
 
@@ -100,6 +103,12 @@ private:
 
     // ── logging ───────────────────────────────────────────────────────
     rclcpp::Time start_time_;
+
+
+    std::deque<double> vx_window_;
+    int vx_moving_average_window_ = 3;
+
+    double filter_vx(double vx);
 
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr       sub_imu_;

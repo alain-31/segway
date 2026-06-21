@@ -37,6 +37,7 @@ void publish_wheel_effort(double left_effort, double right_effort)
 
 BalanceController::BalanceController(const rclcpp::NodeOptions & options)
 : Node("balance_controller", options),
+  prev_pitch_(0.0),
   pitch_setpoint_(0.0),
   integral_(0.0),
   prev_error_(0.0),
@@ -170,6 +171,8 @@ void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
     // Longitudinal ground-truth velocity in the robot forward axis.
     vx_ = std::cos(yaw) * vx_world + std::sin(yaw) * vy_world;
 
+    vx_ = filter_vx(vx_);
+
     pos_x_ = msg->pose.pose.position.x;
 }
 
@@ -254,13 +257,13 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     // ── 2. Pitch from filtered quaternion ─────────────────────────────────────
     const double qy    = msg->orientation.y;
     const double qw    = msg->orientation.w;
-    const double pitch = std::atan2(2.0 * qw * qy, 1.0 - 2.0 * qy * qy);
+    pitch_ = std::atan2(2.0 * qw * qy, 1.0 - 2.0 * qy * qy);
 
     // ── 3. Safety ─────────────────────────────────────────────────────────────
-    if (std::abs(pitch) > pitch_limit_) {
+    if (std::abs(pitch_) > pitch_limit_) {
         if (enabled_) {
             RCLCPP_WARN(this->get_logger(),
-                "Pitch limit exceeded (%.3f rad) — emergency stop", pitch);
+                "Pitch limit exceeded (%.3f rad) — emergency stop", pitch_);
             enabled_ = false;
         }
         publish_wheel_effort(0.0, 0.0);
@@ -269,7 +272,7 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
         return;
     }
     // ── 4. Inner PID ──────────────────────────────────────────────────────────
-    const double error  = pitch - pitch_setpoint_;
+    const double error  = pitch_ - pitch_setpoint_;
     const double output = compute_pid(error, dt);
 
     // ── 5. Deadband + publish ─────────────────────────────────────────────────
@@ -291,11 +294,11 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     this->get_logger(),
     *this->get_clock(),
     50,
-    "t=%.3f"
+    "t=%.3f "
     "pitch=%.6f vx=%.3f pitch_sp=%.6f err=%.3f pid=%.3f yaw=%.3f "
     "L=%.3f R=%.3f vel_error=%.3f ",
     t,
-    pitch,
+    pitch_,
     vx_,
     pitch_setpoint_,
     error,
@@ -318,16 +321,37 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
 
 double BalanceController::compute_pid(double error, double dt)
 {
+    double output;
+
     const double p = kp_ * error;
 
     integral_ += error * dt;
     integral_  = std::clamp(integral_, -integral_max_, integral_max_);
     const double i = ki_ * integral_;
 
-    const double d = kd_ * (error - prev_error_) / dt;
+    // const double d = kd_ * (error - prev_error_) / dt; //  sensible aux sauts de consigne
+    const double d = kd_ * (pitch_ - prev_pitch_) / dt;
     prev_error_    = error;
+    prev_pitch_ = pitch_;
+    output = std::clamp(p + i + d, -output_max_, output_max_); 
 
-    return std::clamp(p + i + d, -output_max_, output_max_); 
+    RCLCPP_INFO_THROTTLE(
+    this->get_logger(),
+    *this->get_clock(),
+    50,
+    "inner_pid | t=%.3f pitch=%.4f sp=%.4f err=%.4f "
+    "p=%.4f i=%.4f d=%.4f raw=%.4f out=%.4f",
+    (this->now() - start_time_).seconds(),
+    pitch_,
+    pitch_setpoint_,
+    error,
+    p,
+    i,
+    d,
+    p + i + d,
+    output);
+
+    return output;
 }
 
 void BalanceController::reset_pid()
@@ -335,6 +359,23 @@ void BalanceController::reset_pid()
     integral_    = 0.0;
     prev_error_  = 0.0;
     initialized_ = false;
+}
+
+
+double BalanceController::filter_vx(double vx)
+{
+    vx_window_.push_back(vx);
+
+    while (vx_window_.size() > static_cast<size_t>(vx_moving_average_window_)) {
+        vx_window_.pop_front();
+    }
+
+    double sum = 0.0;
+    for (double v : vx_window_) {
+        sum += v;
+    }
+
+    return sum / static_cast<double>(vx_window_.size());
 }
 
 // ── Outer velocity PID ────────────────────────────────────────────────────────
@@ -360,29 +401,32 @@ double BalanceController::compute_vel_pid(double error, double dt)
     vel_prev_error_ = error;
 
     const double raw = p + i + d;
-    const double out =
+    const double pitch_setpoint =
         std::clamp(raw,
                    -pitch_setpoint_max_,
                    pitch_setpoint_max_);
     const double t = (this->now() - start_time_).seconds();
 
-    RCLCPP_INFO_THROTTLE(
-        this->get_logger(),
-        *this->get_clock(),
-        100,
-        "t=%.3f"
-        "vel_pid | err=%.3f p=%.4f i=%.4f "
-        "d_raw=%.4f d=%.4f raw=%.4f out=%.4f",
-        t,
-        error,
-        p,
-        i,
-        d_raw,
-        d,
-        raw,
-        out);
+RCLCPP_INFO_THROTTLE(
+    this->get_logger(),
+    *this->get_clock(),
+    100,
+    "t=%.3f "
+    "outer_pid | v_sp=%.3f vx=%.3f err=%.3f "
+    "p=%.4f i=%.4f d_raw=%.4f d=%.4f "
+    "raw=%.4f pitch_sp=%.4f",
+    t,
+    vel_setpoint_,
+    vx_,
+    error,
+    p,
+    i,
+    d_raw,
+    d,
+    raw,
+    pitch_setpoint);
 
-    return out;
+    return pitch_setpoint;
 }
 void BalanceController::reset_vel_pid()
 {

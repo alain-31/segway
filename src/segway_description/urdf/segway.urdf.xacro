@@ -77,11 +77,11 @@
   <!-- ============================================================
        MASSES (kg)
   ============================================================ -->
-  <xacro:property name="m_wheel"  value="0.040"/>  <!-- par roue -->
+  <xacro:property name="m_wheel"  value="0.120"/>  <!-- par roue -->
   <xacro:property name="m_motor"  value="0.110"/>  <!-- 2 motoréducteurs -->
   <xacro:property name="m_elec"   value="0.050"/>  <!-- pont H + convertisseurs -->
   <xacro:property name="m_cards"  value="0.050"/>  <!-- RPi + Nucleo -->
-  <xacro:property name="m_lipo"   value="0.380"/>  <!-- LiPo 3S pesée -->
+  <xacro:property name="m_lipo"   value="0.760"/>  <!-- 0.380 LiPo 3S pesée -->
   <xacro:property name="m_imu"    value="0.003"/>  <!-- MPU6050 -->
 
   <!-- ============================================================
@@ -350,12 +350,16 @@
 
   <!-- Friction roues sur sol — anti-patinage -->
   <gazebo reference="left_wheel_link">
-    <mu1>5.0</mu1>  <mu2>5.0</mu2>
-    <kp>1000000</kp> <kd>100</kd>
+<mu1>1.0</mu1>
+<mu2>1.0</mu2>
+<kp>100000</kp>
+<kd>10</kd>
   </gazebo>
   <gazebo reference="right_wheel_link">
-    <mu1>5.0</mu1>  <mu2>5.0</mu2>
-    <kp>1000000</kp> <kd>100</kd>
+<mu1>1.0</mu1>
+<mu2>1.0</mu2>
+<kp>100000</kp>
+<kd>10</kd>
   </gazebo>
 
   

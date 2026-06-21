@@ -9,7 +9,7 @@ balance_controller:
 
 
     # ── Set point ────────────────────────────────────────────────────────────────
-    pitch_setpoint: 0.02
+    pitch_setpoint: 0.0
 
     # ════════════════════════════════════════════════════════════════════════
     # INNER LOOP — pitch balance (100 Hz, IMU-driven)
@@ -17,7 +17,7 @@ balance_controller:
     #
     # Kp : too low → falls slowly without recovering
     #      too high → fast oscillations
-    kp: 7.0
+    kp: 6.0
 
     # Ki : corrects static pitch bias
     #      too high → windup, instability
@@ -25,7 +25,7 @@ balance_controller:
 
     # Kd : damps oscillations
     #      too high → gyro noise amplification
-    kd: 0.07
+    kd: 0.05
 
     integral_max: 0.2    # anti-windup
     output_max: 0.35    # max wheel effort (Nm)
@@ -42,20 +42,22 @@ balance_controller:
     # vel_kp : how aggressively to lean to correct velocity error
     #          too high → oscillation, instability
     #          too low  → slow drift correction
-    vel_kp: 0.1 # 0.082
+    vel_kp: 0.18 # 0.082
 
     # vel_ki : corrects steady-state velocity error
     #          keep small to avoid windup
-    vel_ki: 0.00
+    vel_ki: 0.01
 
     # vel_kd : damps velocity overshoot
-    vel_kd: 0.01
+    vel_kd: 0.00
 
     # Maximum pitch setpoint the outer loop can command (safety)
-    pitch_setpoint_max: 0.09   # rad (~8.6 degrees)
+    pitch_setpoint_max: 0.055   # rad (~8.6 degrees)
 
     # Anti-windup for velocity integrator
-    vel_integral_max: 0.5      # rad
+    vel_integral_max: 0.2     # rad
+
+    vel_d_max: 0.05
 
     # ── Debug ────────────────────────────────────────────────────────────────
     publish_debug: true
