@@ -70,6 +70,8 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     this->declare_parameter<double>("vel_ki",              0.05);
     this->declare_parameter<double>("vel_kd",              0.01);
     this->declare_parameter<double>("vel_integral_max",    0.1);
+    this->declare_parameter<double>("vel_integral_leak",   0.98);
+    this->declare_parameter<double>("vx_deadzone",         0.02);
     this->declare_parameter<double>("vel_d_max",           0.05);
     this->declare_parameter<double>("pitch_setpoint_max",  0.15);  // rad
 
@@ -93,7 +95,9 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     vel_ki_             = this->get_parameter("vel_ki").as_double();
     vel_kd_             = this->get_parameter("vel_kd").as_double();
     vel_integral_max_   = this->get_parameter("vel_integral_max").as_double();
-    vel_d_max_   = this->get_parameter("vel_d_max").as_double();
+    vx_deadzone_        = this->get_parameter("vx_deadzone").as_double();
+    vel_integral_leak_  = this->get_parameter("vel_integral_leak").as_double();
+    vel_d_max_          = this->get_parameter("vel_d_max").as_double();
     pitch_setpoint_max_ = this->get_parameter("pitch_setpoint_max").as_double();
 
     const auto imu_topic     = this->get_parameter("imu_topic").as_string();
@@ -170,7 +174,7 @@ void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
 
     // Longitudinal ground-truth velocity in the robot forward axis.
     vx_ = std::cos(yaw) * vx_world + std::sin(yaw) * vy_world;
-
+    prev_vx_filtered_ = vx_;
     vx_ = filter_vx(vx_);
 
     pos_x_ = msg->pose.pose.position.x;
@@ -208,6 +212,17 @@ void BalanceController::velocity_loop_callback()
     const double vel_error = vel_setpoint_ - vx_;
 
     pitch_setpoint_ = compute_vel_pid(vel_error, dt);
+
+    // patch vx drift pb
+    //|| (vx_ < -0.002 && pitch_ < 0.0)
+    const double demo_pitch_trim = 0.003;
+
+    if (vx_ > 0.001 && vx_ < 0.025) {
+        pitch_setpoint_ -= demo_pitch_trim;
+    }
+    else if (vx_ < -0.001 && vx_ > -0.025) {
+        pitch_setpoint_ += demo_pitch_trim;
+    }
 
     // Debug
     RCLCPP_DEBUG(this->get_logger(),
@@ -317,7 +332,7 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     }
 }
 
-// ── Inner PID ─────────────────────────────────────────────────────────────────
+// ── Inner PID: pitch ─────────────────────────────────────────────────────────────────
 
 double BalanceController::compute_pid(double error, double dt)
 {
@@ -378,7 +393,7 @@ double BalanceController::filter_vx(double vx)
     return sum / static_cast<double>(vx_window_.size());
 }
 
-// ── Outer velocity PID ────────────────────────────────────────────────────────
+// ── Outer PID: velocity ────────────────────────────────────────────────────────
 
 double BalanceController::compute_vel_pid(double error, double dt)
 {
@@ -389,6 +404,19 @@ double BalanceController::compute_vel_pid(double error, double dt)
         vel_integral_,
         -vel_integral_max_,
         vel_integral_max_);
+
+    const bool sign_change =
+        prev_vx_filtered_ * vx_ < 0.0 ;
+
+    if (sign_change) {
+        vel_integral_ *= 0.25;   // reset fort
+    }
+    else if (std::abs(vx_) < vx_deadzone_) {
+        vel_integral_ *= 0.995; // rabotage
+    }
+
+    prev_vx_filtered_ = vx_;
+
 
     const double i = vel_ki_ * vel_integral_;
 
@@ -412,19 +440,22 @@ RCLCPP_INFO_THROTTLE(
     *this->get_clock(),
     100,
     "t=%.3f "
-    "outer_pid | v_sp=%.3f vx=%.3f err=%.3f "
-    "p=%.4f i=%.4f d_raw=%.4f d=%.4f "
-    "raw=%.4f pitch_sp=%.4f",
+    "outer_pid | x=%.3f v_sp=%.3f vx=%.4f err=%.4f "
+    "p=%.4f i=%.4f integ=%.4f d_raw=%.4f d=%.4f "
+    "raw=%.4f pitch_sp=%.4f pitch=%.4f",
     t,
+    pos_x_,
     vel_setpoint_,
     vx_,
     error,
     p,
     i,
+    vel_integral_,
     d_raw,
     d,
     raw,
-    pitch_setpoint);
+    pitch_setpoint,
+    pitch_);
 
     return pitch_setpoint;
 }

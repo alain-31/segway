@@ -81,7 +81,7 @@ private:
     double vel_kp_;
     double vel_ki_;
     double vel_kd_;
-    double vel_setpoint_;           // target linear velocity (m/s), from joystick
+    double vel_setpoint_=0.0;           // target linear velocity (m/s), from joystick
     double pitch_setpoint_max_;     // max pitch setpoint from outer loop (rad)
     double vel_integral_max_;
     double vel_d_max_;
@@ -107,8 +107,12 @@ private:
 
     std::deque<double> vx_window_;
     int vx_moving_average_window_ = 3;
+    double prev_vx_filtered_= 0.0;
 
     double filter_vx(double vx);
+
+    double vx_deadzone_;
+    double vel_integral_leak_;
 
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr       sub_imu_;

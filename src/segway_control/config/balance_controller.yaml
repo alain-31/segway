@@ -52,10 +52,13 @@ balance_controller:
     vel_kd: 0.000
 
     # Maximum pitch setpoint the outer loop can command (safety)
-    pitch_setpoint_max: 0.055   # rad (~8.6 degrees)
+    pitch_setpoint_max: 0.051   # rad (~8.6 degrees)
 
     # Anti-windup for velocity integrator
     vel_integral_max: 0.22     # rad
+
+    vx_deadzone: 0.01
+    vel_integral_leak: 0.995
 
     vel_d_max: 0.003
 
