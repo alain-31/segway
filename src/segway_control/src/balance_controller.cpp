@@ -37,6 +37,7 @@ void publish_wheel_effort(double left_effort, double right_effort)
 
 BalanceController::BalanceController(const rclcpp::NodeOptions & options)
 : Node("balance_controller", options),
+  pitch_(0.0),
   prev_pitch_(0.0),
   pitch_setpoint_(0.0),
   integral_(0.0),
@@ -78,7 +79,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
     // ── Topics ────────────────────────────────────────────────────────────────
     this->declare_parameter<std::string>("imu_topic",     "/segway/imu/filtered");
     this->declare_parameter<std::string>("odom_topic",    "/segway/odom");
-    this->declare_parameter<std::string>("joy_topic",     "/segway/cmd_vel_user");
+    this->declare_parameter<std::string>("cmd_vel_topic", "/segway/cmd_vel");
     this->declare_parameter<std::string>("effort_topic",  "/segway/wheel_effort_controller/commands");
 
     kp_           = this->get_parameter("kp").as_double();
@@ -102,7 +103,7 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
 
     const auto imu_topic     = this->get_parameter("imu_topic").as_string();
     const auto odom_topic    = this->get_parameter("odom_topic").as_string();
-    const auto joy_topic     = this->get_parameter("joy_topic").as_string();
+    const auto cmd_vel_topic     = this->get_parameter("cmd_vel_topic").as_string();
     const auto effort_topic  = this->get_parameter("effort_topic").as_string();
 
     // ── QoS ───────────────────────────────────────────────────────────────────
@@ -117,9 +118,10 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
         odom_topic, qos,
         std::bind(&BalanceController::odom_callback, this, std::placeholders::_1));
 
-    sub_joy_ = this->create_subscription<geometry_msgs::msg::Twist>(
-        joy_topic, 10,
-        std::bind(&BalanceController::joy_callback, this, std::placeholders::_1));
+    sub_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>(
+        cmd_vel_topic,
+        10,
+        std::bind(&BalanceController::cmdVelCallback, this, std::placeholders::_1));
 
     // ── Publishers ────────────────────────────────────────────────────────────
     g_pub_wheel_effort = this->create_publisher<std_msgs::msg::Float64MultiArray>(effort_topic, 10);
@@ -153,6 +155,14 @@ BalanceController::BalanceController(const rclcpp::NodeOptions & options)
         output_max_, pitch_limit_);
 }
 
+// ── CmdVel callback — update desired vx and desired yaw_rate ─────────────────────────────
+void BalanceController::cmdVelCallback(
+    const geometry_msgs::msg::Twist::SharedPtr msg)
+{
+    vel_setpoint_      = msg->linear.x;
+    yaw_rate_setpoint_ = msg->angular.z;
+}
+
 // ── Odom callback — update measured vx and pos_x ─────────────────────────────
 
 void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -178,15 +188,6 @@ void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
     vx_ = filter_vx(vx_);
 
     pos_x_ = msg->pose.pose.position.x;
-}
-
-// ── Joystick callback — update velocity and yaw setpoints ────────────────────
-
-void BalanceController::joy_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
-{
-    vel_setpoint_      = msg->linear.x;
-    yaw_rate_setpoint_ = msg->angular.z;
-    reset_pid();  // reset inner integrator on new velocity command
 }
 
 // ── Outer loop — 20 Hz ───────────────────────────────────────────────────────
@@ -350,12 +351,40 @@ double BalanceController::compute_pid(double error, double dt)
     prev_pitch_ = pitch_;
     output = std::clamp(p + i + d, -output_max_, output_max_); 
 
+    
+    double ff = 0.0;
+
+    //const double t = (this->now() - start_time_).seconds();
+
+    const bool rising_command =
+        std::abs(prev_vel_setpoint_) <= drive_ff_threshold_ &&
+        std::abs(vel_setpoint_) > drive_ff_threshold_;
+
+    if (rising_command) {
+        ff_active_ = true;
+        ff_start_time_ = this->now();
+    }
+
+    if (ff_active_) {
+        const double ff_age = (this->now() - ff_start_time_).seconds();
+
+        if (ff_age <= drive_ff_duration_) {
+            ff = -drive_ff_ * std::copysign(1.0, vel_setpoint_);
+        } else {
+            ff_active_ = false;
+        }
+    }
+
+    prev_vel_setpoint_ = vel_setpoint_;
+
+    output = std::clamp(output + ff, -output_max_, output_max_);
+    
     RCLCPP_INFO_THROTTLE(
     this->get_logger(),
     *this->get_clock(),
     50,
     "inner_pid | t=%.3f pitch=%.4f sp=%.4f err=%.4f "
-    "p=%.4f i=%.4f d=%.4f raw=%.4f out=%.4f",
+    "p=%.4f i=%.4f d=%.4f raw=%.4f ff=%.4f out=%.4f",
     (this->now() - start_time_).seconds(),
     pitch_,
     pitch_setpoint_,
@@ -364,6 +393,7 @@ double BalanceController::compute_pid(double error, double dt)
     i,
     d,
     p + i + d,
+    ff,
     output);
 
     return output;
@@ -417,7 +447,6 @@ double BalanceController::compute_vel_pid(double error, double dt)
 
     prev_vx_filtered_ = vx_;
 
-
     const double i = vel_ki_ * vel_integral_;
 
     const double d_raw =
@@ -459,6 +488,7 @@ RCLCPP_INFO_THROTTLE(
 
     return pitch_setpoint;
 }
+
 void BalanceController::reset_vel_pid()
 {
     vel_integral_    = 0.0;

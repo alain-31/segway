@@ -51,7 +51,7 @@ private:
     // ── Callbacks ─────────────────────────────────────────────────────────────
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg);
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
-    void joy_callback(const geometry_msgs::msg::Twist::SharedPtr msg);
+    void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
     void velocity_loop_callback();
 
     // ── PID helpers ───────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ private:
     double vel_kp_;
     double vel_ki_;
     double vel_kd_;
-    double vel_setpoint_=0.0;           // target linear velocity (m/s), from joystick
+    double vel_setpoint_;           // target linear velocity (m/s), from joystick
     double pitch_setpoint_max_;     // max pitch setpoint from outer loop (rad)
     double vel_integral_max_;
     double vel_d_max_;
@@ -114,10 +114,20 @@ private:
     double vx_deadzone_;
     double vel_integral_leak_;
 
+
+    // ── Boost ───────────────────────────────────────────────────────
+    double prev_vel_setpoint_ = 0.0;
+    rclcpp::Time ff_start_time_;
+    bool ff_active_{false};
+
+    double drive_ff_{0.010};
+    double drive_ff_duration_ = 0.25;   // secondes
+    double drive_ff_threshold_ = 0.005;
+
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
-    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr       sub_imu_;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        sub_imu_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr      sub_odom_;
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr    sub_joy_;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr    sub_cmd_vel_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr       pub_cmd_vel_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr          pub_pid_error_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr          pub_pid_output_;

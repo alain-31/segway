@@ -4,7 +4,6 @@ balance_controller:
     # ── Topics ──────────────────────────────────────────────────────────────
     imu_topic:     /segway/imu/filtered   # input: filtered pitch
     odom_topic:    /segway/odom           # input: measured velocity
-    joy_topic:     /segway/cmd_vel_joy    # input: joystick setpoint
     cmd_vel_topic: /segway/cmd_vel        # output: motor command
 
 

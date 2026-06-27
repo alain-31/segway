@@ -10,6 +10,12 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+
 def generate_launch_description():
 
     config_controller = os.path.join(
@@ -17,12 +23,9 @@ def generate_launch_description():
         'config', 'balance_controller.yaml'
     )
 
-    balance_controller_node = Node(
-        package='segway_control',
-        executable='balance_controller',
-        name='balance_controller',
-        output='screen',
-        parameters=[config_controller],
+    joy_teleop_controller = os.path.join(
+        get_package_share_directory('segway_control'),
+        'config', 'joy_teleop.yaml'
     )
 
     config_imu = os.path.join(
@@ -38,7 +41,39 @@ def generate_launch_description():
         parameters=[config_imu, {'use_sim_time': True}],
     )
 
+    balance_controller_node = Node(
+        package='segway_control',
+        executable='balance_controller',
+        name='balance_controller',
+        output='screen',
+        parameters=[config_controller],
+    )
+
+    # driver launch
+    joy_node = Node(
+        package='joy',
+        executable='joy_node',
+        name='joy_node',
+        output='screen',
+        parameters=[{
+            'dev': '/dev/input/js0',
+            'deadzone': 0.1,
+            'autorepeat_rate': 20.0,
+        }],
+    )
+
+    # convert joy message -> twist message
+    joy_teleop_node = Node(
+        package='joy_teleop',
+        executable='joy_teleop',
+        name='joy_teleop',
+        output='screen',
+        parameters=[joy_teleop_controller],
+    )
+
     return LaunchDescription([
         imu_filter_node,
         balance_controller_node,
+        joy_node,
+        joy_teleop_node,
     ])
