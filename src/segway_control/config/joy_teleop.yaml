@@ -10,11 +10,11 @@ joy_teleop:
         linear-x:
           axis: 1
           target: linear.x
-          scale: 0.03
+          scale: 0.04
           offset: 0.0
 
         angular-z:
           axis: 3
           target: angular.z
-          scale: 0.0
+          scale: 1.0
           offset: 0.0

@@ -59,6 +59,7 @@ private:
     void   reset_pid();
     double compute_vel_pid(double error, double dt);
     void   reset_vel_pid();
+    double compute_yaw_pid();
 
     // ── Inner loop parameters ─────────────────────────────────────────────────
     double kp_;
@@ -95,7 +96,7 @@ private:
     // ── Measured state ────────────────────────────────────────────────────────
     double vx_;       // longitudinal ground-truth velocity from /segway/odom (m/s)
     double pos_x_;    // measured position from /segway/odom (m)
-    double yaw_rate_setpoint_;  // from joystick angular.z
+    double yaw_rate_setpoint_= 0.0;  // from joystick angular.z
 
     // ── Safety ────────────────────────────────────────────────────────────────
     double pitch_limit_;
@@ -107,13 +108,26 @@ private:
 
     std::deque<double> vx_window_;
     int vx_moving_average_window_ = 3;
-    double prev_vx_filtered_= 0.0;
+    double prev_vx_filtered_= 0.0; 
 
+    double alpha_ = 0.99;
+    double prev_vx_ = 0.0;
+    double vx_dot_filtered_ = 0.0;
+
+    double stop_x_ref_ = 0.0;
+
+    double stop_hold_kp_ = 0.10;
+    double stop_hold_vmax_ = 0.010;
+    double stop_hold_counter_ = 0.0;
     double filter_vx(double vx);
 
     double vx_deadzone_;
     double vel_integral_leak_;
 
+
+    double vx_bias_est_ = 0.0;   // membre
+    double offset_kp_  = 0.45;
+    double offset_max_ = 0.008;
 
     // ── Boost ───────────────────────────────────────────────────────
     double prev_vel_setpoint_ = 0.0;
@@ -123,6 +137,12 @@ private:
     double drive_ff_{0.010};
     double drive_ff_duration_ = 0.25;   // secondes
     double drive_ff_threshold_ = 0.005;
+
+    // ── Loop to control angular speed──────────────────────────────────
+    double yaw_rate_{0.0};
+
+    double yaw_kp_{0.05};
+    double yaw_output_max_{0.05};
 
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        sub_imu_;

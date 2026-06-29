@@ -45,21 +45,22 @@ balance_controller:
 
     # vel_ki : corrects steady-state velocity error
     #          keep small to avoid windup
-    vel_ki: 0.02
+    vel_ki: 0.005
 
     # vel_kd : damps velocity overshoot
-    vel_kd: 0.000
+    vel_kd: 0.0
 
     # Maximum pitch setpoint the outer loop can command (safety)
-    pitch_setpoint_max: 0.051   # rad (~8.6 degrees)
+    pitch_setpoint_max: 0.051 #0.051   # rad (~8.6 degrees)
 
     # Anti-windup for velocity integrator
     vel_integral_max: 0.22     # rad
 
     vx_deadzone: 0.01
+
     vel_integral_leak: 0.995
 
-    vel_d_max: 0.003
+    vel_d_max: 0.004
 
     # ── Debug ────────────────────────────────────────────────────────────────
     publish_debug: true

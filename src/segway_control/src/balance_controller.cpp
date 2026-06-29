@@ -187,8 +187,40 @@ void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
     prev_vx_filtered_ = vx_;
     vx_ = filter_vx(vx_);
 
+    // angular velocity
+    yaw_rate_ = msg->twist.twist.angular.z;
+
     pos_x_ = msg->pose.pose.position.x;
 }
+
+
+// ── angular velocity loop ───────────────────────────────────────────────────────
+
+double BalanceController::compute_yaw_pid()
+{
+    const double yaw_error = yaw_rate_setpoint_ - yaw_rate_;
+
+    const double p = yaw_kp_ * yaw_error;
+
+    const double yaw_cmd = std::clamp(
+        p,
+        -yaw_output_max_,
+        yaw_output_max_);
+
+    RCLCPP_INFO_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        100,
+        "yaw_pid | yaw_sp=%.3f yaw=%.3f err=%.3f p=%.4f cmd=%.4f",
+        yaw_rate_setpoint_,
+        yaw_rate_,
+        yaw_error,
+        p,
+        yaw_cmd);
+
+    return yaw_cmd;
+}
+
 
 // ── Outer loop — 20 Hz ───────────────────────────────────────────────────────
 
@@ -215,8 +247,7 @@ void BalanceController::velocity_loop_callback()
     pitch_setpoint_ = compute_vel_pid(vel_error, dt);
 
     // patch vx drift pb
-    //|| (vx_ < -0.002 && pitch_ < 0.0)
-    const double demo_pitch_trim = 0.003;
+    /* const double demo_pitch_trim = 0.003;
 
     if (vx_ > 0.001 && vx_ < 0.025) {
         pitch_setpoint_ -= demo_pitch_trim;
@@ -224,6 +255,7 @@ void BalanceController::velocity_loop_callback()
     else if (vx_ < -0.001 && vx_ > -0.025) {
         pitch_setpoint_ += demo_pitch_trim;
     }
+    */
 
     // Debug
     RCLCPP_DEBUG(this->get_logger(),
@@ -287,16 +319,21 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
         reset_vel_pid();
         return;
     }
-    // ── 4. Inner PID ──────────────────────────────────────────────────────────
+    // ── 4. Inner PID + angular speed PID ──────────────────────────────────────────────────────────
     const double error  = pitch_ - pitch_setpoint_;
-    const double output = compute_pid(error, dt);
+    const double balance_effort = compute_pid(error, dt);
+    const double yaw_effort = compute_yaw_pid();
 
     // ── 5. Deadband + publish ─────────────────────────────────────────────────
-    const double balance_effort = output;
-    const double yaw_effort     = yaw_rate_setpoint_;
+    const double left_effort = std::clamp(
+        balance_effort - yaw_effort,
+        -output_max_,
+        output_max_);
 
-    const double left_effort  = balance_effort - yaw_effort;
-    const double right_effort = balance_effort + yaw_effort;
+    const double right_effort = std::clamp(
+        balance_effort + yaw_effort,
+        -output_max_,
+        output_max_);
 
     publish_wheel_effort(left_effort, right_effort);
 
@@ -311,14 +348,14 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     *this->get_clock(),
     50,
     "t=%.3f "
-    "pitch=%.6f vx=%.3f pitch_sp=%.6f err=%.3f pid=%.3f yaw=%.3f "
+    "pitch=%.6f vx=%.3f pitch_sp=%.6f err=%.3f balance_effort=%.3f yaw_effort=%.3f "
     "L=%.3f R=%.3f vel_error=%.3f ",
     t,
     pitch_,
     vx_,
     pitch_setpoint_,
     error,
-    output,
+    balance_effort,
     yaw_effort,
     left_effort,
     right_effort,
@@ -327,7 +364,7 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     if (pub_pid_error_ && pub_pid_output_) {
         std_msgs::msg::Float64 msg_error, msg_output;
         msg_error.data  = error;
-        msg_output.data = output;
+        msg_output.data = balance_effort;
         pub_pid_error_->publish(msg_error);
         pub_pid_output_->publish(msg_output);
     }
@@ -425,10 +462,41 @@ double BalanceController::filter_vx(double vx)
 
 // ── Outer PID: velocity ────────────────────────────────────────────────────────
 
-double BalanceController::compute_vel_pid(double error, double dt)
+double BalanceController::compute_vel_pid(double /*error*/, double dt)
 {
+    const double error = vel_setpoint_ - vx_;
+
+    // ── 0. drift_correction ────────────────────────────────────────────────────────────────
+ 
+    const bool stop_requested =
+    std::abs(vel_setpoint_) < 0.005;
+
+    const bool robot_almost_stopped =
+    std::abs(vx_) < 0.04;   // test initial
+
+    // Mise à jour lente seulement quand on demande l'arrêt
+    if (stop_requested && robot_almost_stopped) {
+        vx_bias_est_ =
+            0.995 * vx_bias_est_ + 0.005 * vx_;
+    }
+    else if (!stop_requested) {
+        vx_bias_est_ *= 0.98;
+    }
+
+    double pitch_offset_corr = 0.0;
+
+    if (stop_requested && std::abs(vx_bias_est_) > 0.006) {
+        pitch_offset_corr =
+            std::clamp(-offset_kp_ * vx_bias_est_,
+                    -offset_max_,
+                        offset_max_);
+    }
+
+  
+    // ── 1. P ────────────────────────────────────────────────────────────────
     const double p = vel_kp_ * error;
 
+    // ── 2. I + anti-windup ─────────────────────────────────────────────────
     vel_integral_ += error * dt;
     vel_integral_ = std::clamp(
         vel_integral_,
@@ -436,55 +504,72 @@ double BalanceController::compute_vel_pid(double error, double dt)
         vel_integral_max_);
 
     const bool sign_change =
-        prev_vx_filtered_ * vx_ < 0.0 ;
+        prev_vx_filtered_ * vx_ < 0.0;
 
     if (sign_change) {
-        vel_integral_ *= 0.25;   // reset fort
+        vel_integral_ *= 0.25;
     }
     else if (std::abs(vx_) < vx_deadzone_) {
-        vel_integral_ *= 0.995; // rabotage
+        vel_integral_ *= 0.995;
     }
 
     prev_vx_filtered_ = vx_;
 
     const double i = vel_ki_ * vel_integral_;
 
+    // ── 3. D sur mesure vx ─────────────────────────────────────────────────
+    const double vx_dot_raw = (vx_ - prev_vx_) / dt;
+
+    vx_dot_filtered_ =
+        alpha_ * vx_dot_filtered_
+        + (1.0 - alpha_) * vx_dot_raw;
+
     const double d_raw =
-        vel_kd_ * (error - vel_prev_error_) / dt;
+        -vel_kd_ * vx_dot_filtered_;
+
+    prev_vx_ = vx_;
 
     const double d =
         std::clamp(d_raw, -vel_d_max_, vel_d_max_);
 
     vel_prev_error_ = error;
 
-    const double raw = p + i + d;
+    // ── 4. Pitch setpoint ──────────────────────────────────────────────────
+    double raw = p + i + d + pitch_offset_corr;
+
+    // Limite différente a l'arret
+    // const double pitch_limit =
+    // stop_requested ? 0.018 : pitch_setpoint_max_;
+
     const double pitch_setpoint =
-        std::clamp(raw,
-                   -pitch_setpoint_max_,
-                   pitch_setpoint_max_);
+    std::clamp(raw, -pitch_setpoint_max_, pitch_setpoint_max_);
+
     const double t = (this->now() - start_time_).seconds();
 
-RCLCPP_INFO_THROTTLE(
-    this->get_logger(),
-    *this->get_clock(),
-    100,
-    "t=%.3f "
-    "outer_pid | x=%.3f v_sp=%.3f vx=%.4f err=%.4f "
-    "p=%.4f i=%.4f integ=%.4f d_raw=%.4f d=%.4f "
-    "raw=%.4f pitch_sp=%.4f pitch=%.4f",
-    t,
-    pos_x_,
-    vel_setpoint_,
-    vx_,
-    error,
-    p,
-    i,
-    vel_integral_,
-    d_raw,
-    d,
-    raw,
-    pitch_setpoint,
-    pitch_);
+    RCLCPP_INFO_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        100,
+        "t=%.3f "
+        "outer_pid | x=%.3f x_ref=%.3f "
+        "v_sp=%.3f vx=%.4f err=%.4f "
+        "p=%.4f i=%.4f pitch_offset_corr=%.4f integ=%.4f d_raw=%.4f d=%.4f "
+        "raw=%.4f pitch_sp=%.4f pitch=%.4f",
+        t,
+        pos_x_,
+        stop_x_ref_,
+        vel_setpoint_,
+        vx_,
+        error,
+        p,
+        i,
+        pitch_offset_corr,
+        vel_integral_,
+        d_raw,
+        d,
+        raw,
+        pitch_setpoint,
+        pitch_);
 
     return pitch_setpoint;
 }
