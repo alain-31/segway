@@ -464,18 +464,51 @@ double BalanceController::filter_vx(double vx)
 
 double BalanceController::compute_vel_pid(double /*error*/, double dt)
 {
-    const double error = vel_setpoint_ - vx_;
+    // ── 0. Sécurité dt ─────────────────────────────────────────────────────
+    if (dt <= 1e-4) {
+        return 0.0;
+    }
 
-    // ── 0. drift_correction ────────────────────────────────────────────────────────────────
- 
+    // ── 1. Rampe quantifiée sur la consigne vitesse ─────────────────────────
+    const double max_delta_v = vel_accel_max_ * dt;
+
+    const double remaining_delta_v =
+        vel_setpoint_ - vel_setpoint_ramped_;
+
+    double delta_v = std::clamp(
+        remaining_delta_v,
+        -max_delta_v,
+        max_delta_v);
+
+    // Marche minimale efficace : évite les pas sous la dead zone mécanique
+    const double vel_step_min = 0.022;  // m/s, premier test prudent
+
+    if (std::abs(remaining_delta_v) > vel_step_min &&
+        std::abs(delta_v) < vel_step_min) {
+        delta_v = std::copysign(vel_step_min, remaining_delta_v);
+    }
+
+    vel_setpoint_ramped_ += delta_v;
+
+    // Sécurité : ne jamais dépasser la consigne cible
+    if ((remaining_delta_v > 0.0 && vel_setpoint_ramped_ > vel_setpoint_) ||
+        (remaining_delta_v < 0.0 && vel_setpoint_ramped_ < vel_setpoint_)) {
+        vel_setpoint_ramped_ = vel_setpoint_;
+    }
+
+    const double error = vel_setpoint_ramped_ - vx_;
+
     const bool stop_requested =
-    std::abs(vel_setpoint_) < 0.005;
+        std::abs(vel_setpoint_) < 0.005;
+
+    const bool stop_ramped_reached =
+        std::abs(vel_setpoint_ramped_) < 0.005;
 
     const bool robot_almost_stopped =
-    std::abs(vx_) < 0.04;   // test initial
+        std::abs(vx_) < 0.04;
 
-    // Mise à jour lente seulement quand on demande l'arrêt
-    if (stop_requested && robot_almost_stopped) {
+    // ── 2. Drift correction ────────────────────────────────────────────────
+    if (stop_requested && stop_ramped_reached && robot_almost_stopped) {
         vx_bias_est_ =
             0.995 * vx_bias_est_ + 0.005 * vx_;
     }
@@ -485,23 +518,27 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
 
     double pitch_offset_corr = 0.0;
 
-    if (stop_requested && std::abs(vx_bias_est_) > 0.006) {
+    if (stop_requested &&
+        stop_ramped_reached &&
+        std::abs(vx_bias_est_) > 0.006) {
+
         pitch_offset_corr =
-            std::clamp(-offset_kp_ * vx_bias_est_,
-                    -offset_max_,
-                        offset_max_);
+            std::clamp(
+                -offset_kp_ * vx_bias_est_,
+                -offset_max_,
+                 offset_max_);
     }
 
-  
-    // ── 1. P ────────────────────────────────────────────────────────────────
+    // ── 3. P ───────────────────────────────────────────────────────────────
     const double p = vel_kp_ * error;
 
-    // ── 2. I + anti-windup ─────────────────────────────────────────────────
+    // ── 4. I + anti-windup ─────────────────────────────────────────────────
     vel_integral_ += error * dt;
+
     vel_integral_ = std::clamp(
         vel_integral_,
         -vel_integral_max_,
-        vel_integral_max_);
+         vel_integral_max_);
 
     const bool sign_change =
         prev_vx_filtered_ * vx_ < 0.0;
@@ -517,7 +554,7 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
 
     const double i = vel_ki_ * vel_integral_;
 
-    // ── 3. D sur mesure vx ─────────────────────────────────────────────────
+    // ── 5. D sur vx ────────────────────────────────────────────────────────
     const double vx_dot_raw = (vx_ - prev_vx_) / dt;
 
     vx_dot_filtered_ =
@@ -534,15 +571,14 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
 
     vel_prev_error_ = error;
 
-    // ── 4. Pitch setpoint ──────────────────────────────────────────────────
-    double raw = p + i + d + pitch_offset_corr;
-
-    // Limite différente a l'arret
-    // const double pitch_limit =
-    // stop_requested ? 0.018 : pitch_setpoint_max_;
+    // ── 6. Pitch setpoint ──────────────────────────────────────────────────
+    const double raw = p + i + d + pitch_offset_corr;
 
     const double pitch_setpoint =
-    std::clamp(raw, -pitch_setpoint_max_, pitch_setpoint_max_);
+        std::clamp(
+            raw,
+            -pitch_setpoint_max_,
+             pitch_setpoint_max_);
 
     const double t = (this->now() - start_time_).seconds();
 
@@ -552,13 +588,15 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
         100,
         "t=%.3f "
         "outer_pid | x=%.3f x_ref=%.3f "
-        "v_sp=%.3f vx=%.4f err=%.4f "
-        "p=%.4f i=%.4f pitch_offset_corr=%.4f integ=%.4f d_raw=%.4f d=%.4f "
+        "v_sp=%.3f v_sp_ramped=%.3f vx=%.4f err=%.4f "
+        "p=%.4f i=%.4f pitch_offset_corr=%.4f "
+        "integ=%.4f d_raw=%.4f d=%.4f "
         "raw=%.4f pitch_sp=%.4f pitch=%.4f",
         t,
         pos_x_,
         stop_x_ref_,
         vel_setpoint_,
+        vel_setpoint_ramped_,
         vx_,
         error,
         p,

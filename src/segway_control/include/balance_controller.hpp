@@ -128,6 +128,7 @@ private:
     double vx_bias_est_ = 0.0;   // membre
     double offset_kp_  = 0.45;
     double offset_max_ = 0.008;
+    
 
     // ── Boost ───────────────────────────────────────────────────────
     double prev_vel_setpoint_ = 0.0;
@@ -137,6 +138,11 @@ private:
     double drive_ff_{0.010};
     double drive_ff_duration_ = 0.25;   // secondes
     double drive_ff_threshold_ = 0.005;
+
+
+    double vel_setpoint_ramped_ = 0.0;
+    double vel_accel_max_ = 0.04;   // m/s², premier test prudent;
+
 
     // ── Loop to control angular speed──────────────────────────────────
     double yaw_rate_{0.0};

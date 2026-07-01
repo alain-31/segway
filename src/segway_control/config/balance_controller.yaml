@@ -24,7 +24,7 @@ balance_controller:
 
     # Kd : damps oscillations
     #      too high → gyro noise amplification
-    kd: 0.05
+    kd: 0.0575
 
     integral_max: 0.2    # anti-windup
     output_max: 0.35    # max wheel effort (Nm)
@@ -41,18 +41,18 @@ balance_controller:
     # vel_kp : how aggressively to lean to correct velocity error
     #          too high → oscillation, instability
     #          too low  → slow drift correction
-    vel_kp: 0.18
+    vel_kp: 0.17
 
     # vel_ki : corrects steady-state velocity error
     #          keep small to avoid windup
-    vel_ki: 0.005
+    vel_ki: 0.003 #0.005
 
     # vel_kd : damps velocity overshoot
     vel_kd: 0.0
 
     # Maximum pitch setpoint the outer loop can command (safety)
-    pitch_setpoint_max: 0.051 #0.051   # rad (~8.6 degrees)
-
+    pitch_setpoint_max: 0.045  # rad 
+    
     # Anti-windup for velocity integrator
     vel_integral_max: 0.22     # rad
 
