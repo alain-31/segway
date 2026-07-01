@@ -507,6 +507,37 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
     const bool robot_almost_stopped =
         std::abs(vx_) < 0.04;
 
+    // ── Start boost ────────────────────────────────────────────────
+
+    const bool move_requested =
+        std::abs(vel_setpoint_) > 0.005;
+
+    const bool robot_not_moving =
+        std::abs(vx_) < 0.006;
+
+    const bool ramp_started =
+        std::abs(vel_setpoint_ramped_) > 0.020;
+
+    const double t = (this->now() - start_time_).seconds();
+
+    if (move_requested && robot_not_moving && ramp_started && !start_boost_running_) {
+        start_boost_running_ = true;
+        start_boost_t0_ = t;
+    }
+
+    double start_boost = 0.0;
+
+    if (start_boost_running_) {
+        const double boost_age = t - start_boost_t0_;
+
+        if (boost_age < start_boost_duration_ && move_requested) {
+            start_boost = std::copysign(start_boost_pitch_, vel_setpoint_);
+        } else {
+            start_boost_running_ = false;
+        }
+    }
+
+
     // ── 2. Drift correction ────────────────────────────────────────────────
     if (stop_requested && stop_ramped_reached && robot_almost_stopped) {
         vx_bias_est_ =
@@ -572,7 +603,7 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
     vel_prev_error_ = error;
 
     // ── 6. Pitch setpoint ──────────────────────────────────────────────────
-    const double raw = p + i + d + pitch_offset_corr;
+    double raw = p + i + d + pitch_offset_corr + start_boost;
 
     const double pitch_setpoint =
         std::clamp(
@@ -580,7 +611,7 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
             -pitch_setpoint_max_,
              pitch_setpoint_max_);
 
-    const double t = (this->now() - start_time_).seconds();
+    //const double t = (this->now() - start_time_).seconds();
 
     RCLCPP_INFO_THROTTLE(
         this->get_logger(),

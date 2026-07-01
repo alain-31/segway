@@ -144,11 +144,19 @@ private:
     double vel_accel_max_ = 0.04;   // m/s², premier test prudent;
 
 
+    double start_boost_pitch_ = 0.0015;   // rad
+    double start_boost_duration_ = 0.25;  // s
+    double start_boost_t0_ = -1.0;
+    bool start_boost_running_ = false;
+
     // ── Loop to control angular speed──────────────────────────────────
     double yaw_rate_{0.0};
 
     double yaw_kp_{0.05};
     double yaw_output_max_{0.05};
+
+
+
 
     // ── ROS2 interfaces ───────────────────────────────────────────────────────
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr        sub_imu_;
