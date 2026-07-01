@@ -1,66 +1,37 @@
 balance_controller:
   ros__parameters:
-
     # ── Topics ──────────────────────────────────────────────────────────────
-    imu_topic:     /segway/imu/filtered   # input: filtered pitch
-    odom_topic:    /segway/odom           # input: measured velocity
-    cmd_vel_topic: /segway/cmd_vel        # output: motor command
+    imu_topic: /segway/imu/filtered
+    odom_topic: /segway/odom
+    cmd_vel_topic: /segway/cmd_vel
 
-
-    # ── Set point ────────────────────────────────────────────────────────────────
+    # ── Setpoint ────────────────────────────────────────────────────────────
     pitch_setpoint: 0.0
 
     # ════════════════════════════════════════════════════════════════════════
-    # INNER LOOP — pitch balance (100 Hz, IMU-driven)
+    # INNER LOOP — pitch balance
     # ════════════════════════════════════════════════════════════════════════
-    #
-    # Kp : too low → falls slowly without recovering
-    #      too high → fast oscillations
     kp: 6.0
-
-    # Ki : corrects static pitch bias
-    #      too high → windup, instability
     ki: 0.0
-
-    # Kd : damps oscillations
-    #      too high → gyro noise amplification
     kd: 0.0575
 
-    integral_max: 0.2    # anti-windup
-    output_max: 0.35    # max wheel effort (Nm)
-    deadband: 0.0      # Nm
-
-    # Safety: emergency stop if pitch exceeds this
-    pitch_limit: 0.5     # rad
+    integral_max: 0.2
+    output_max: 0.35
+    deadband: 0.0
+    pitch_limit: 0.5
 
     # ════════════════════════════════════════════════════════════════════════
-    # OUTER LOOP — velocity control (20 Hz, timer-driven)
-    # Output: pitch_setpoint fed to inner loop
+    # OUTER LOOP — velocity control
     # ════════════════════════════════════════════════════════════════════════
-    #
-    # vel_kp : how aggressively to lean to correct velocity error
-    #          too high → oscillation, instability
-    #          too low  → slow drift correction
     vel_kp: 0.17
-
-    # vel_ki : corrects steady-state velocity error
-    #          keep small to avoid windup
-    vel_ki: 0.003 #0.005
-
-    # vel_kd : damps velocity overshoot
+    vel_ki: 0.003
     vel_kd: 0.0
 
-    # Maximum pitch setpoint the outer loop can command (safety)
-    pitch_setpoint_max: 0.045  # rad 
-    
-    # Anti-windup for velocity integrator
-    vel_integral_max: 0.22     # rad
-
+    pitch_setpoint_max: 0.045
+    vel_integral_max: 0.22
     vx_deadzone: 0.01
-
     vel_integral_leak: 0.995
-
     vel_d_max: 0.004
 
-    # ── Debug ────────────────────────────────────────────────────────────────
+    # ── Debug ───────────────────────────────────────────────────────────────
     publish_debug: true
