@@ -47,7 +47,7 @@ def generate_launch_description():
     )
     world_arg = DeclareLaunchArgument(
         'world',
-        default_value=os.path.join(pkg_segway_description, 'worlds', 'small_house.world'),
+        default_value=os.path.join(pkg_segway_description, 'worlds', 'small_house_demo.world'),
         description='Fichier world Gazebo'
     )
 
