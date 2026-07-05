@@ -4,7 +4,7 @@ project(segway_description)
 find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY
-  urdf launch rviz config meshes
+  urdf launch rviz config meshes worlds models
   DESTINATION share/${PROJECT_NAME}
 )
 

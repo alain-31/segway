@@ -47,9 +47,23 @@ def generate_launch_description():
     )
     world_arg = DeclareLaunchArgument(
         'world',
-        default_value=os.path.join(pkg_segway_gazebo, 'worlds', 'segway_flat.world'),
+        default_value=os.path.join(pkg_segway_description, 'worlds', 'small_house.world'),
         description='Fichier world Gazebo'
     )
+
+    x_spawn_arg = DeclareLaunchArgument(
+        'x_spawn', default_value='0.0',
+        description='Position X du robot dans le world'
+    )
+    y_spawn_arg = DeclareLaunchArgument(
+        'y_spawn', default_value='0.0',
+        description='Position Y du robot dans le world'
+    )
+    yaw_spawn_arg = DeclareLaunchArgument(
+        'yaw_spawn', default_value='0.0',
+        description='Orientation yaw du robot en radians'
+    )
+
     # Hauteur spawn — légèrement au-dessus du sol, le robot tombera 0.0325
     z_spawn_arg = DeclareLaunchArgument(
         'z_spawn', default_value='0.033',
@@ -59,7 +73,10 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     gui          = LaunchConfiguration('gui')
     world        = LaunchConfiguration('world')
+    x_spawn      = LaunchConfiguration('x_spawn')
+    y_spawn      = LaunchConfiguration('y_spawn')
     z_spawn      = LaunchConfiguration('z_spawn')
+    yaw_spawn    = LaunchConfiguration('yaw_spawn')
 
     # ── URDF via xacro ────────────────────────────────────────────────────────
     xacro_file = os.path.join(
@@ -107,12 +124,12 @@ def generate_launch_description():
                 arguments=[
                     '-topic', '/segway/robot_description',
                     '-entity', 'segway_mini',
-                    '-x', '0.0',
-                    '-y', '0.0',
+                    '-x', x_spawn,
+                    '-y', y_spawn,
                     '-z', z_spawn,
                     '-R', '0.0',
                     '-P', '0.00',
-                    '-Y', '0.0',
+                    '-Y', yaw_spawn,
                 ],
                 output='screen'
             )
@@ -144,7 +161,10 @@ def generate_launch_description():
         use_sim_time_arg,
         gui_arg,
         world_arg,
+        x_spawn_arg,
+        y_spawn_arg,
         z_spawn_arg,
+        yaw_spawn_arg,
         gazebo,
         robot_state_publisher,
         spawn_entity,
