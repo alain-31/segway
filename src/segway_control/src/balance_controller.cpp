@@ -181,6 +181,28 @@ void BalanceController::cmdVelCallback(
 
 void BalanceController::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
+    const double t = (this->now() - start_time_).seconds();
+
+    if (first_odom_time_ < 0.0) {
+        first_odom_time_ = t;
+    }
+
+    if (!control_ready_ && (t - first_odom_time_) >= control_ready_delay_) {
+        control_ready_ = true;
+
+        vel_integral_ = 0.0;
+        vel_prev_error_ = 0.0;
+        vel_setpoint_ramped_ = 0.0;
+        start_boost_running_ = false;
+        vx_bias_est_ = 0.0;
+        prev_vx_ = vx_;
+        vx_dot_filtered_ = 0.0;
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Control ready after %.2f s of odometry", control_ready_delay_);
+    }
+
     const auto & q = msg->pose.pose.orientation;
 
     const double qw = q.w;
@@ -251,6 +273,17 @@ void BalanceController::velocity_loop_callback()
 
     if (dt <= 0.0 || dt > 1.0) return;
 
+    if (!control_ready_) {
+        pitch_setpoint_ = 0.0;
+        vel_integral_ = 0.0;
+        vel_prev_error_ = 0.0;
+        vel_setpoint_ramped_ = 0.0;
+        start_boost_running_ = false;
+        prev_vx_ = vx_;
+        vx_dot_filtered_ = 0.0;
+        return;
+    }
+
     // Outer PID: vx_ comes only from /segway/odom ground truth.
     // Positive vel_error means the robot is moving too much backward
     // for a zero setpoint, so the controller asks for a positive pitch setpoint.
@@ -307,6 +340,14 @@ void BalanceController::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
     const double qy    = msg->orientation.y;
     const double qw    = msg->orientation.w;
     pitch_ = std::atan2(2.0 * qw * qy, 1.0 - 2.0 * qy * qy);
+
+    if (!control_ready_) {
+        integral_ = 0.0;
+        prev_error_ = 0.0;
+        prev_pitch_ = pitch_;
+        publish_wheel_effort(0.0, 0.0);
+        return;
+    }
 
     // ── 3. Safety ─────────────────────────────────────────────────────────────
     if (std::abs(pitch_) > pitch_limit_) {
@@ -466,6 +507,16 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
         return 0.0;
     }
 
+    if (!control_ready_) {
+        vel_integral_ = 0.0;
+        vel_prev_error_ = 0.0;
+        vel_setpoint_ramped_ = 0.0;
+        start_boost_running_ = false;
+        prev_vx_ = vx_;
+        vx_dot_filtered_ = 0.0;
+        return 0.0;
+    }
+
     // ── 1. Quantized velocity setpoint ramp ─────────────────────────────────────
     const double max_delta_v = vel_accel_max_ * dt;
 
@@ -560,12 +611,23 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
     const double p = vel_kp_ * error;
 
     // ── 4. I + anti-windup ──────────────────────────────────────────────────────
-    vel_integral_ += error * dt;
+    const bool yaw_active =
+        std::abs(yaw_rate_setpoint_) > 0.2;
+
+    const double integral_gain =
+        yaw_active ? 0.2 : 1.0;
+
+    vel_integral_ += integral_gain * error * dt;
 
     vel_integral_ = std::clamp(
         vel_integral_,
         -vel_integral_max_,
          vel_integral_max_);
+
+
+    if (yaw_active && std::abs(vel_setpoint_) < 0.005) {
+        vel_integral_ *= 0.98;
+    }
 
     const bool sign_change =
         prev_vx_filtered_ * vx_ < 0.0;
@@ -639,8 +701,12 @@ double BalanceController::compute_vel_pid(double /*error*/, double dt)
 
 void BalanceController::reset_vel_pid()
 {
-    vel_integral_    = 0.0;
-    vel_prev_error_  = 0.0;
+    vel_integral_ = 0.0;
+    vel_prev_error_ = 0.0;
+    vel_setpoint_ramped_ = 0.0;
+    start_boost_running_ = false;
+    prev_vx_ = vx_;
+    vx_dot_filtered_ = 0.0;
     vel_initialized_ = false;
 }
 

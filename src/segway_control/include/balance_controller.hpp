@@ -63,6 +63,13 @@ private:
     void reset_pid();
     void reset_vel_pid();
 
+    // Startup gating: keep both PID loops inactive until odometry has been valid
+    // for a short delay. This prevents velocity integral windup before spawn.
+    bool control_ready_ = false;
+    double first_odom_time_ = -1.0;
+    double control_ready_delay_ = 2.0;
+
+
     // ── Inner loop parameters ─────────────────────────────────────────────────
     double kp_;
     double ki_;
