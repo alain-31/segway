@@ -88,10 +88,10 @@
        MATÉRIAUX
   ============================================================ -->
   <material name="wheel_black">  <color rgba="0.08 0.08 0.08 1.0"/> </material>
-  <material name="motor_grey">   <color rgba="0.35 0.35 0.35 1.0"/> </material>
+  <material name="body_blue">    <color rgba="0.10 0.30 0.80 1.0"/> </material>
   <material name="elec_blue">    <color rgba="0.10 0.30 0.80 1.0"/> </material>
   <material name="cards_green">  <color rgba="0.05 0.50 0.15 1.0"/> </material>
-  <material name="lipo_yellow">  <color rgba="0.90 0.80 0.00 1.0"/> </material>
+  <material name="battery_grey"> <color rgba="0.45 0.45 0.45 1.0"/> </material>
   <material name="imu_red">      <color rgba="0.80 0.10 0.10 1.0"/> </material>
 
   <!-- ============================================================
@@ -172,7 +172,7 @@
       <geometry>
         <box size="0.020 0.210 0.020"/>
       </geometry>
-      <material name="motor_grey"/>
+      <material name="body_blue"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -251,7 +251,7 @@
       <geometry>
         <box size="0.070 0.155 0.060"/>
       </geometry>
-      <material name="lipo_yellow"/>
+      <material name="battery_grey"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -364,6 +364,32 @@
 
   
   <!-- Gazebo materials -->
+  <!-- Gazebo Classic n'utilise pas toujours les couleurs URDF <visual>.
+       On force donc les matériaux au niveau Gazebo pour l'affichage. -->
+  <gazebo reference="left_wheel_link">
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <gazebo reference="right_wheel_link">
+    <material>Gazebo/Black</material>
+  </gazebo>
+
+  <gazebo reference="motor_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+  <gazebo reference="elec_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+  <gazebo reference="cards_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+  <gazebo reference="lipo_link">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
   <gazebo reference="left_wheel_marker">
     <material>Gazebo/Red</material>
   </gazebo>
