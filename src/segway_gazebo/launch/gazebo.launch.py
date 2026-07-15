@@ -115,7 +115,7 @@ def generate_launch_description():
     # 3. Spawner — délai 3s pour laisser Gazebo démarrer complètement
     #    avant d'injecter le robot (évite le spawn pendant le chargement)
     spawn_entity = TimerAction(
-        period=15.0,
+        period=3.0,
         actions=[
             Node(
                 package='gazebo_ros',

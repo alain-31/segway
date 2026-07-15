@@ -23,14 +23,14 @@ balance_controller:
     # ════════════════════════════════════════════════════════════════════════
     # OUTER LOOP — velocity control
     # ════════════════════════════════════════════════════════════════════════
-    vel_kp: 0.17
+    vel_kp: 0.155
     vel_ki: 0.003
     vel_kd: 0.0
 
     pitch_setpoint_max: 0.045
     vel_integral_max: 0.22
-    vx_deadzone: 0.01
-    vel_integral_leak: 0.995
+    vx_deadzone: 0.003
+    vel_integral_leak: 0.97
     vel_d_max: 0.004
 
     # ── Debug ───────────────────────────────────────────────────────────────
